@@ -68,10 +68,56 @@ def fetch_from_github(filename, branch='main'):
         print(f"[ERROR] Response body: {response.text[:500]}")
         raise Exception(f"Failed to fetch {filename}: {response.status_code}")
 
+def verify_github_access():
+    """Verify GitHub API access and list repo contents"""
+    print("[VERIFY] Testing GitHub API access...")
+    
+    # Test 1: Check if we can access the repo at all
+    repo_url = f"https://api.github.com/repos/{PRIVATE_REPO}"
+    headers = {
+        'Authorization': f'Bearer {GITHUB_TOKEN}' if GITHUB_TOKEN.startswith('github_pat_') else f'token {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    print(f"[VERIFY] Checking repo access: {repo_url}")
+    response = requests.get(repo_url, headers=headers)
+    print(f"[VERIFY] Repo access status: {response.status_code}")
+    
+    if response.status_code == 200:
+        repo_data = response.json()
+        print(f"[VERIFY] ✓ Repo found: {repo_data.get('name')}")
+        print(f"[VERIFY] ✓ Default branch: {repo_data.get('default_branch')}")
+        print(f"[VERIFY] ✓ Private: {repo_data.get('private')}")
+    else:
+        print(f"[VERIFY] ✗ Cannot access repo: {response.text[:200]}")
+        return False
+    
+    # Test 2: List root contents
+    contents_url = f"https://api.github.com/repos/{PRIVATE_REPO}/contents"
+    print(f"[VERIFY] Listing repo contents: {contents_url}")
+    response = requests.get(contents_url, headers=headers)
+    print(f"[VERIFY] Contents list status: {response.status_code}")
+    
+    if response.status_code == 200:
+        contents = response.json()
+        print(f"[VERIFY] ✓ Found {len(contents)} items in repo root:")
+        for item in contents:
+            print(f"[VERIFY]   - {item.get('name')} ({item.get('type')})")
+    else:
+        print(f"[VERIFY] ✗ Cannot list contents: {response.text[:200]}")
+    
+    return True
+
 def load_users():
     """Load users from private repository"""
     try:
         print(f"Attempting to fetch users.json from {PRIVATE_REPO}")
+        
+        # First time? Run verification
+        if not hasattr(load_users, '_verified'):
+            verify_github_access()
+            load_users._verified = True
+        
         users_json = fetch_from_github('users.json')
         print(f"Successfully fetched users.json, content length: {len(users_json)}")
         parsed = json.loads(users_json)
