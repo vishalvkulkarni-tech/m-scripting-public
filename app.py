@@ -23,28 +23,54 @@ Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
 
 def fetch_from_github(filename):
     """Fetch file content from private GitHub repository"""
-    if not GITHUB_TOKEN or not PRIVATE_REPO:
-        raise Exception("GitHub credentials not configured")
+    print(f"[DEBUG] fetch_from_github called for: {filename}")
+    
+    if not GITHUB_TOKEN:
+        print("[ERROR] GITHUB_TOKEN is not set!")
+        raise Exception("GitHub credentials not configured: GITHUB_TOKEN missing")
+    
+    if not PRIVATE_REPO:
+        print("[ERROR] PRIVATE_REPO is not set!")
+        raise Exception("GitHub credentials not configured: PRIVATE_REPO missing")
+    
+    print(f"[DEBUG] GITHUB_TOKEN exists: {GITHUB_TOKEN[:10]}... (truncated)")
+    print(f"[DEBUG] PRIVATE_REPO: {PRIVATE_REPO}")
     
     url = f"https://api.github.com/repos/{PRIVATE_REPO}/contents/{filename}"
+    print(f"[DEBUG] Fetching URL: {url}")
+    
     headers = {
         'Authorization': f'token {GITHUB_TOKEN}',
         'Accept': 'application/vnd.github.v3.raw'
     }
+    print(f"[DEBUG] Request headers set (Authorization: token {GITHUB_TOKEN[:10]}...)")
     
+    print(f"[DEBUG] Making GET request...")
     response = requests.get(url, headers=headers)
+    print(f"[DEBUG] Response status code: {response.status_code}")
+    
     if response.status_code == 200:
+        print(f"[DEBUG] Successfully fetched {filename}, size: {len(response.text)} bytes")
         return response.text
     else:
+        print(f"[ERROR] Failed to fetch {filename}")
+        print(f"[ERROR] Status code: {response.status_code}")
+        print(f"[ERROR] Response body: {response.text[:500]}")
         raise Exception(f"Failed to fetch {filename}: {response.status_code}")
 
 def load_users():
     """Load users from private repository"""
     try:
+        print(f"Attempting to fetch users.json from {PRIVATE_REPO}")
         users_json = fetch_from_github('users.json')
-        return json.loads(users_json)
+        print(f"Successfully fetched users.json, content length: {len(users_json)}")
+        parsed = json.loads(users_json)
+        print(f"Parsed {len(parsed.get('users', []))} users")
+        return parsed
     except Exception as e:
         print(f"Error loading users: {e}")
+        import traceback
+        traceback.print_exc()
         return {"users": []}
 
 def load_database():
@@ -240,19 +266,35 @@ def login():
         username = data.get('username')
         password = data.get('password')
         
+        print(f"[LOGIN] Login attempt - Username: '{username}'")
+        
         # Load users
+        print(f"[LOGIN] Loading users from GitHub...")
         users_data = load_users()
         users = users_data.get('users', [])
+        
+        print(f"[LOGIN] Loaded {len(users)} users from database")
+        print(f"[LOGIN] Available usernames: {[u.get('username') for u in users]}")
         
         # Find user
         user = next((u for u in users if u['username'] == username), None)
         
         if user:
+            print(f"[LOGIN] User '{username}' found in database")
+            print(f"[LOGIN] Stored password: '{user['password']}'")
+            print(f"[LOGIN] Provided password: '{password}'")
+            
             # Verify password (plain text comparison)
             if user['password'] == password:
+                print(f"[LOGIN] Password match! Login successful for '{username}'")
                 session['username'] = username
                 return jsonify({'success': True})
+            else:
+                print(f"[LOGIN] Password mismatch for '{username}'")
+        else:
+            print(f"[LOGIN] User '{username}' NOT found in database")
         
+        print(f"[LOGIN] Login failed for '{username}'")
         return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
     
     return render_template('login.html')
@@ -332,8 +374,16 @@ def submit_quiz():
             'user_answer': user_answer,
             'is_correct': is_correct
         })
-    
-    # Save result
+if __name__ == '__main__':
+    print("="*50)
+    print("[STARTUP] Application starting...")
+    print(f"[STARTUP] Environment variables check:")
+    print(f"  - SECRET_KEY: {'SET' if os.environ.get('SECRET_KEY') else 'NOT SET'}")
+    print(f"  - GITHUB_TOKEN: {'SET' if os.environ.get('GITHUB_TOKEN') else 'NOT SET'}")
+    print(f"  - PRIVATE_REPO: {os.environ.get('PRIVATE_REPO', 'NOT SET')}")
+    print(f"  - RESULTS_DIR: {os.environ.get('RESULTS_DIR', 'NOT SET')}")
+    print("="*50)
+    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
     save_result(session['username'], score, len(questions), time_taken)
     
     return jsonify({
