@@ -1,7 +1,7 @@
 let questions = [];
 let currentQuestion = 0;
 let answers = {};
-let timeLeft = 30 * 60; // 30 minutes in seconds
+let timeLeft = 30 * 60; // Will be set from server config
 let timerInterval;
 let startTime;
 
@@ -18,6 +18,11 @@ async function loadQuestions() {
         const response = await fetch('/api/questions');
         const data = await response.json();
         questions = data.questions;
+        
+        // Set timer from server configuration
+        if (data.quiz_time_minutes) {
+            timeLeft = data.quiz_time_minutes * 60;
+        }
         
         // Render all questions
         const container = document.getElementById('quizContainer');
@@ -42,23 +47,30 @@ function createQuestionElement(q, index) {
     div.className = 'question';
     div.id = `question-${index}`;
     
-    // Determine if multiple answers are possible (simple heuristic)
-    const inputType = 'checkbox'; // Allow multiple selections for all questions
+    // Use radio for single answer, checkbox for multiple answers
+    const inputType = q.is_multiple ? 'checkbox' : 'radio';
     
     let optionsHTML = '';
     q.options.forEach(opt => {
+        // Escape single quotes in option text for JS
+        const escapedText = opt.text.replace(/'/g, "\\'");
         optionsHTML += `
             <label class="option">
-                <input type="${inputType}" name="q${q.id}" value="${opt.num}" 
-                       onchange="handleAnswerChange(${q.id}, '${opt.num}', this.checked)">
+                <input type="${inputType}" name="q${q.id}" value="${escapedText}" 
+                       onchange="handleAnswerChange(${q.id}, '${escapedText}', this.checked, '${inputType}')">
                 <span>${opt.num}. ${opt.text}</span>
             </label>
         `;
     });
     
+    const answerTypeHint = q.is_multiple ? 
+        '<p class="answer-hint">⚠️ Multiple answers possible - select all that apply</p>' : 
+        '<p class="answer-hint">ℹ️ Single answer - select one option</p>';
+    
     div.innerHTML = `
         <h2>Question ${index + 1} of ${questions.length}</h2>
         <p>${q.question}</p>
+        ${answerTypeHint}
         <div class="options">
             ${optionsHTML}
         </div>
@@ -67,17 +79,23 @@ function createQuestionElement(q, index) {
     return div;
 }
 
-function handleAnswerChange(questionId, optionNum, checked) {
-    if (!answers[questionId]) {
-        answers[questionId] = [];
-    }
-    
-    if (checked) {
-        if (!answers[questionId].includes(optionNum)) {
-            answers[questionId].push(optionNum);
-        }
+function handleAnswerChange(questionId, optionText, checked, inputType) {
+    if (inputType === 'radio') {
+        // For radio buttons, replace the answer with the selected option
+        answers[questionId] = [optionText];
     } else {
-        answers[questionId] = answers[questionId].filter(a => a !== optionNum);
+        // For checkboxes, maintain array of selected options
+        if (!answers[questionId]) {
+            answers[questionId] = [];
+        }
+        
+        if (checked) {
+            if (!answers[questionId].includes(optionText)) {
+                answers[questionId].push(optionText);
+            }
+        } else {
+            answers[questionId] = answers[questionId].filter(a => a !== optionText);
+        }
     }
     
     // Update visual feedback
@@ -175,10 +193,10 @@ function getTimeTaken() {
 async function submitQuiz() {
     clearInterval(timerInterval);
     
-    // Convert answers object to format expected by backend
+    // Send answers as arrays of option texts
     const formattedAnswers = {};
     for (const [qId, selectedOptions] of Object.entries(answers)) {
-        formattedAnswers[qId] = selectedOptions.sort().join(' ');
+        formattedAnswers[qId] = selectedOptions; // Keep as array
     }
     
     try {
@@ -220,28 +238,32 @@ function displayResults(data) {
         
         let optionsHTML = '';
         result.options.forEach(opt => {
-            const correctNums = result.correct_answer.split(' ');
-            const userNums = result.user_answer.split(' ');
+            const correctTexts = result.correct_answers || [];
+            const userTexts = result.user_answers || [];
             
             let optClass = '';
-            if (correctNums.includes(opt.num)) {
+            if (correctTexts.includes(opt.text)) {
                 optClass = 'correct-answer';
             }
-            if (userNums.includes(opt.num)) {
+            if (userTexts.includes(opt.text)) {
                 optClass += ' user-answer';
             }
             
             optionsHTML += `<p class="${optClass}">${opt.num}. ${opt.text}</p>`;
         });
         
+        const correctAnswerText = result.correct_answers ? result.correct_answers.join(', ') : '';
+        const userAnswerText = result.user_answers && result.user_answers.length > 0 ? 
+            result.user_answers.join(', ') : 'Not answered';
+        
         resultsHTML += `
             <div class="result-item ${className}">
                 <h4>Question ${index + 1}: ${isCorrect ? '✓ Correct' : '✗ Incorrect'}</h4>
                 <p><strong>${result.question}</strong></p>
                 ${optionsHTML}
-                <p class="correct-answer">Correct Answer: ${result.correct_answer}</p>
-                ${!isCorrect && result.user_answer ? 
-                    `<p class="user-answer">Your Answer: ${result.user_answer || 'Not answered'}</p>` : ''}
+                <p class="correct-answer">Correct Answer: ${correctAnswerText}</p>
+                ${!isCorrect ? 
+                    `<p class="user-answer">Your Answer: ${userAnswerText}</p>` : ''}
             </div>
         `;
     });
