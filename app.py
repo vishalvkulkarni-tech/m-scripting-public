@@ -21,9 +21,9 @@ RESULTS_FILE = os.path.join(RESULTS_DIR, 'results.json')
 # Create data directory if it doesn't exist
 Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
 
-def fetch_from_github(filename):
+def fetch_from_github(filename, branch='main'):
     """Fetch file content from private GitHub repository"""
-    print(f"[DEBUG] fetch_from_github called for: {filename}")
+    print(f"[DEBUG] fetch_from_github called for: {filename} (branch: {branch})")
     
     if not GITHUB_TOKEN:
         print("[ERROR] GITHUB_TOKEN is not set!")
@@ -36,14 +36,20 @@ def fetch_from_github(filename):
     print(f"[DEBUG] GITHUB_TOKEN exists: {GITHUB_TOKEN[:10]}... (truncated)")
     print(f"[DEBUG] PRIVATE_REPO: {PRIVATE_REPO}")
     
-    url = f"https://api.github.com/repos/{PRIVATE_REPO}/contents/{filename}"
+    # Try with specified branch
+    url = f"https://api.github.com/repos/{PRIVATE_REPO}/contents/{filename}?ref={branch}"
     print(f"[DEBUG] Fetching URL: {url}")
     
+    # Fine-grained tokens use 'Bearer', classic tokens use 'token'
+    # Try Bearer first (for fine-grained tokens)
+    auth_prefix = 'Bearer' if GITHUB_TOKEN.startswith('github_pat_') else 'token'
+    print(f"[DEBUG] Using auth prefix: {auth_prefix}")
+    
     headers = {
-        'Authorization': f'token {GITHUB_TOKEN}',
+        'Authorization': f'{auth_prefix} {GITHUB_TOKEN}',
         'Accept': 'application/vnd.github.v3.raw'
     }
-    print(f"[DEBUG] Request headers set (Authorization: token {GITHUB_TOKEN[:10]}...)")
+    print(f"[DEBUG] Request headers set (Authorization: {auth_prefix} {GITHUB_TOKEN[:10]}...)")
     
     print(f"[DEBUG] Making GET request...")
     response = requests.get(url, headers=headers)
@@ -52,6 +58,10 @@ def fetch_from_github(filename):
     if response.status_code == 200:
         print(f"[DEBUG] Successfully fetched {filename}, size: {len(response.text)} bytes")
         return response.text
+    elif response.status_code == 404 and branch == 'main':
+        # Try with 'master' branch
+        print(f"[DEBUG] 404 on 'main' branch, trying 'master' branch...")
+        return fetch_from_github(filename, branch='master')
     else:
         print(f"[ERROR] Failed to fetch {filename}")
         print(f"[ERROR] Status code: {response.status_code}")
@@ -374,16 +384,8 @@ def submit_quiz():
             'user_answer': user_answer,
             'is_correct': is_correct
         })
-if __name__ == '__main__':
-    print("="*50)
-    print("[STARTUP] Application starting...")
-    print(f"[STARTUP] Environment variables check:")
-    print(f"  - SECRET_KEY: {'SET' if os.environ.get('SECRET_KEY') else 'NOT SET'}")
-    print(f"  - GITHUB_TOKEN: {'SET' if os.environ.get('GITHUB_TOKEN') else 'NOT SET'}")
-    print(f"  - PRIVATE_REPO: {os.environ.get('PRIVATE_REPO', 'NOT SET')}")
-    print(f"  - RESULTS_DIR: {os.environ.get('RESULTS_DIR', 'NOT SET')}")
-    print("="*50)
-    app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
+    
+    # Save result to persistent storage
     save_result(session['username'], score, len(questions), time_taken)
     
     return jsonify({
@@ -399,4 +401,12 @@ def health():
     return jsonify({'status': 'ok', 'timestamp': datetime.now().isoformat()})
 
 if __name__ == '__main__':
+    print("="*50)
+    print("[STARTUP] Application starting...")
+    print(f"[STARTUP] Environment variables check:")
+    print(f"  - SECRET_KEY: {'SET' if os.environ.get('SECRET_KEY') else 'NOT SET'}")
+    print(f"  - GITHUB_TOKEN: {'SET' if os.environ.get('GITHUB_TOKEN') else 'NOT SET'}")
+    print(f"  - PRIVATE_REPO: {os.environ.get('PRIVATE_REPO', 'NOT SET')}")
+    print(f"  - RESULTS_DIR: {os.environ.get('RESULTS_DIR', 'NOT SET')}")
+    print("="*50)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
