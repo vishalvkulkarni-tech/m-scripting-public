@@ -215,7 +215,7 @@ def parse_question(question_text):
             if match:
                 options.append({
                     'num': match.group(1),
-                    'text': match.group(2)
+                    'text': match.group(2).strip()  # Ensure clean text without extra spaces
                 })
         elif not line_stripped.startswith('OPTIONS:') and not in_options and question:
             # Continue question text
@@ -227,12 +227,50 @@ def parse_question(question_text):
     for num in answer_nums:
         for opt in options:
             if opt['num'] == num:
-                correct_option_texts.append(opt['text'])
+                correct_option_texts.append(opt['text'].strip())  # Ensure clean text
                 break
     
-    # Shuffle options randomly
-    shuffled_options = options.copy()
-    random.shuffle(shuffled_options)
+    # Check if any option references other options (e.g., "Both 1 and 2", "Option A and B")
+    # If so, don't shuffle to avoid breaking references
+    has_references = False
+    reference_patterns = [
+        r'both.*\d+.*\d+',  # "Both 1 and 2"
+        r'both.*and',  # "Both A and B"
+        r'option.*and.*option',  # "Option A and Option B"
+        r'\d+.*and.*\d+',  # "1 and 2"
+        r'all of the above',
+        r'none of the above',
+        r'all the above',
+        r'none the above'
+    ]
+    
+    for opt in options:
+        opt_lower = opt['text'].lower()
+        if any(re.search(pattern, opt_lower) for pattern in reference_patterns):
+            has_references = True
+            break
+    
+    # If no references, shuffle normally but keep special options at end
+    if not has_references:
+        special_keywords = ['all of the above', 'none of the above', 'all the above', 'none the above']
+        
+        regular_options = []
+        special_options = []
+        
+        for opt in options:
+            if any(keyword in opt['text'].lower() for keyword in special_keywords):
+                special_options.append(opt)
+            else:
+                regular_options.append(opt)
+        
+        # Shuffle only regular options
+        random.shuffle(regular_options)
+        
+        # Combine: shuffled regular options + special options at end
+        shuffled_options = regular_options + special_options
+    else:
+        # Don't shuffle if options reference each other
+        shuffled_options = options
     
     return {
         'number': question_num,
@@ -456,9 +494,9 @@ def submit_quiz():
         if not isinstance(user_answer_texts, list):
             user_answer_texts = [user_answer_texts] if user_answer_texts else []
         
-        # Compare sets of answer texts
-        correct_set = set(correct_answer_texts)
-        user_set = set(user_answer_texts)
+        # Normalize texts by stripping whitespace for comparison
+        correct_set = set(text.strip() for text in correct_answer_texts)
+        user_set = set(text.strip() for text in user_answer_texts if text)
         
         is_correct = correct_set == user_set
         if is_correct:
