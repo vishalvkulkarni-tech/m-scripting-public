@@ -58,7 +58,7 @@ function createQuestionElement(q, index) {
             <label class="option">
                 <input type="${inputType}" name="q${q.id}" value="${escapedText}" 
                        onchange="handleAnswerChange(${q.id}, '${escapedText}', this.checked, '${inputType}')">
-                <span>${opt.num}. ${opt.text}</span>
+                <span>${opt.text}</span>
             </label>
         `;
     });
@@ -249,7 +249,7 @@ function displayResults(data) {
                 optClass += ' user-answer';
             }
             
-            optionsHTML += `<p class="${optClass}">${opt.num}. ${opt.text}</p>`;
+            optionsHTML += `<p class="${optClass}">${opt.text}</p>`;
         });
         
         const correctAnswerText = result.correct_answers ? result.correct_answers.join(', ') : '';
