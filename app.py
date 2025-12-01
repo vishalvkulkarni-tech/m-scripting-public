@@ -14,6 +14,11 @@ app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-i
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 PRIVATE_REPO = os.environ.get('PRIVATE_REPO')  # Format: username/repo-name
 
+# Quiz configuration (customizable)
+QUIZ_NUM_QUESTIONS = int(os.environ.get('QUIZ_NUM_QUESTIONS', '30'))  # Total questions per quiz
+QUIZ_TIME_MINUTES = int(os.environ.get('QUIZ_TIME_MINUTES', '30'))  # Quiz duration in minutes
+QUIZ_SECTION1_PERCENTAGE = float(os.environ.get('QUIZ_SECTION1_PERCENTAGE', '0.5'))  # 50% from Section 1
+
 # Persistent disk for results
 RESULTS_DIR = os.environ.get('RESULTS_DIR', './data')
 RESULTS_FILE = os.path.join(RESULTS_DIR, 'results.json')
@@ -216,23 +221,40 @@ def parse_question(question_text):
             # Continue question text
             question += ' ' + line_stripped
     
+    # Convert answer numbers to actual option texts
+    answer_nums = answer.split()
+    correct_option_texts = []
+    for num in answer_nums:
+        for opt in options:
+            if opt['num'] == num:
+                correct_option_texts.append(opt['text'])
+                break
+    
+    # Shuffle options randomly
+    shuffled_options = options.copy()
+    random.shuffle(shuffled_options)
+    
     return {
         'number': question_num,
         'question': question.strip(),
-        'options': options,
-        'answer': answer
+        'options': shuffled_options,
+        'correct_answers': correct_option_texts,  # Store actual text of correct answers
+        'is_multiple': len(correct_option_texts) > 1  # Flag for radio vs checkbox
     }
 
-def generate_random_questions(num_questions=30):
-    """Generate random questions with 50% from Section 1"""
+def generate_random_questions(num_questions=None):
+    """Generate random questions with configurable percentage from Section 1"""
+    if num_questions is None:
+        num_questions = QUIZ_NUM_QUESTIONS
+    
     database_content = load_database()
     sections, questions = parse_database(database_content)
     
     if not sections or not questions:
         return []
     
-    # Allocate 50% to Section 1
-    questions_from_section1 = min(round(num_questions * 0.5), sections[0]['count'])
+    # Allocate configured percentage to Section 1
+    questions_from_section1 = min(round(num_questions * QUIZ_SECTION1_PERCENTAGE), sections[0]['count'])
     questions_per_section = [questions_from_section1] + [0] * (len(sections) - 1)
     
     # Distribute remaining among other sections
@@ -369,10 +391,13 @@ def quiz():
         return redirect(url_for('login'))
     
     # Generate new questions for this session
-    questions = generate_random_questions(30)
+    questions = generate_random_questions()
     session['questions'] = questions
     
-    return render_template('quiz.html', username=session['username'])
+    return render_template('quiz.html', 
+                         username=session['username'],
+                         quiz_time_minutes=QUIZ_TIME_MINUTES,
+                         num_questions=QUIZ_NUM_QUESTIONS)
 
 @app.route('/api/questions')
 def get_questions():
@@ -388,10 +413,23 @@ def get_questions():
         questions_without_answers.append({
             'id': q['id'],
             'question': q['question'],
-            'options': q['options']
+            'options': q['options'],
+            'is_multiple': q.get('is_multiple', False)  # Tell frontend if multiple answers allowed
         })
     
-    return jsonify({'questions': questions_without_answers})
+    return jsonify({
+        'questions': questions_without_answers,
+        'quiz_time_minutes': QUIZ_TIME_MINUTES
+    })
+
+@app.route('/api/config')
+def get_config():
+    """API endpoint to get quiz configuration"""
+    return jsonify({
+        'num_questions': QUIZ_NUM_QUESTIONS,
+        'time_minutes': QUIZ_TIME_MINUTES,
+        'section1_percentage': QUIZ_SECTION1_PERCENTAGE
+    })
 
 @app.route('/api/submit', methods=['POST'])
 def submit_quiz():
@@ -411,14 +449,18 @@ def submit_quiz():
     
     for q in questions:
         q_id = str(q['id'])
-        correct_answer = q['answer']
-        user_answer = user_answers.get(q_id, '')
+        correct_answer_texts = q['correct_answers']  # List of correct option texts
+        user_answer_texts = user_answers.get(q_id, [])  # List of selected option texts
         
-        # Handle multiple correct answers
-        correct_answers = set(correct_answer.split())
-        user_answers_set = set(user_answer.split())
+        # Ensure user_answer_texts is a list
+        if not isinstance(user_answer_texts, list):
+            user_answer_texts = [user_answer_texts] if user_answer_texts else []
         
-        is_correct = correct_answers == user_answers_set
+        # Compare sets of answer texts
+        correct_set = set(correct_answer_texts)
+        user_set = set(user_answer_texts)
+        
+        is_correct = correct_set == user_set
         if is_correct:
             score += 1
         
@@ -426,9 +468,10 @@ def submit_quiz():
             'id': q['id'],
             'question': q['question'],
             'options': q['options'],
-            'correct_answer': correct_answer,
-            'user_answer': user_answer,
-            'is_correct': is_correct
+            'correct_answers': correct_answer_texts,
+            'user_answers': user_answer_texts,
+            'is_correct': is_correct,
+            'is_multiple': q.get('is_multiple', False)
         })
     
     # Save result to persistent storage
