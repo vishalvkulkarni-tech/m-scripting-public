@@ -2,13 +2,24 @@ import os
 import json
 import random
 import re
+import base64
 from datetime import datetime
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import requests
-from pathlib import Path
 
 app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
+app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes session timeout
+
+# Prevent caching of sensitive pages
+@app.after_request
+def add_no_cache_headers(response):
+    """Add headers to prevent caching of sensitive pages"""
+    if request.endpoint in ['login', 'quiz', 'get_questions']:
+        response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate, post-check=0, pre-check=0, max-age=0'
+        response.headers['Pragma'] = 'no-cache'
+        response.headers['Expires'] = '-1'
+    return response
 
 # GitHub configuration
 GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
@@ -19,12 +30,44 @@ QUIZ_NUM_QUESTIONS = int(os.environ.get('QUIZ_NUM_QUESTIONS', '30'))  # Total qu
 QUIZ_TIME_MINUTES = int(os.environ.get('QUIZ_TIME_MINUTES', '30'))  # Quiz duration in minutes
 QUIZ_SECTION1_PERCENTAGE = float(os.environ.get('QUIZ_SECTION1_PERCENTAGE', '0.5'))  # 50% from Section 1
 
-# Persistent disk for results
-RESULTS_DIR = os.environ.get('RESULTS_DIR', './data')
-RESULTS_FILE = os.path.join(RESULTS_DIR, 'results.json')
-
-# Create data directory if it doesn't exist
-Path(RESULTS_DIR).mkdir(parents=True, exist_ok=True)
+def upload_to_github(filename, content, message="Update file"):
+    """Upload/update file in private GitHub repository"""
+    print(f"[GITHUB] Uploading {filename} to GitHub...")
+    
+    url = f"https://api.github.com/repos/{PRIVATE_REPO}/contents/{filename}"
+    auth_prefix = 'Bearer' if GITHUB_TOKEN.startswith('github_pat_') else 'token'
+    
+    headers = {
+        'Authorization': f'{auth_prefix} {GITHUB_TOKEN}',
+        'Accept': 'application/vnd.github.v3+json'
+    }
+    
+    # Check if file exists (to get SHA for update)
+    response = requests.get(url, headers=headers)
+    
+    content_encoded = base64.b64encode(content.encode()).decode()
+    
+    data = {
+        'message': message,
+        'content': content_encoded
+    }
+    
+    if response.status_code == 200:
+        # File exists, need SHA to update
+        data['sha'] = response.json()['sha']
+        print(f"[GITHUB] File exists, updating...")
+    else:
+        print(f"[GITHUB] File doesn't exist, creating...")
+    
+    response = requests.put(url, headers=headers, json=data)
+    
+    if response.status_code in [200, 201]:
+        print(f"[GITHUB] Successfully uploaded {filename}")
+        return True
+    else:
+        print(f"[GITHUB] Failed to upload {filename}: {response.status_code}")
+        print(f"[GITHUB] Response: {response.text[:200]}")
+        return False
 
 def fetch_from_github(filename, branch='main'):
     """Fetch file content from private GitHub repository"""
@@ -133,6 +176,30 @@ def load_users():
         import traceback
         traceback.print_exc()
         return {"users": []}
+
+def load_used_credentials():
+    """Load list of used credentials from GitHub"""
+    try:
+        content = fetch_from_github('used_credentials.json')
+        return json.loads(content)
+    except Exception as e:
+        print(f"[CREDENTIAL] No existing credentials file or error: {e}")
+        return []
+
+def mark_credential_used(username):
+    """Mark a credential as used and save to GitHub"""
+    used_creds = load_used_credentials()
+    
+    if username not in used_creds:
+        used_creds.append(username)
+        content = json.dumps(used_creds, indent=2)
+        upload_to_github('used_credentials.json', content, f"Mark {username} as used")
+        print(f"[CREDENTIAL] Marked username '{username}' as used")
+
+def is_credential_used(username):
+    """Check if credential has been used"""
+    used_creds = load_used_credentials()
+    return username in used_creds
 
 def load_database():
     """Load question database from private repository"""
@@ -341,7 +408,7 @@ def generate_random_questions(num_questions=None):
     return parsed_questions
 
 def save_result(username, score, total, time_taken):
-    """Save quiz result to persistent disk"""
+    """Save quiz result to GitHub"""
     result = {
         'username': username,
         'score': score,
@@ -351,21 +418,21 @@ def save_result(username, score, total, time_taken):
         'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
     }
     
-    # Load existing results
+    # Load existing results from GitHub
     results = []
-    if os.path.exists(RESULTS_FILE):
-        try:
-            with open(RESULTS_FILE, 'r') as f:
-                results = json.load(f)
-        except:
-            results = []
+    try:
+        content = fetch_from_github('results.json')
+        results = json.loads(content)
+    except Exception as e:
+        print(f"[RESULTS] No existing results file or error: {e}")
+        results = []
     
     # Append new result
     results.append(result)
     
-    # Save back
-    with open(RESULTS_FILE, 'w') as f:
-        json.dump(results, f, indent=2)
+    # Save back to GitHub
+    content = json.dumps(results, indent=2)
+    upload_to_github('results.json', content, f"Add result for {username}")
 
 @app.route('/')
 def index():
@@ -402,8 +469,27 @@ def login():
             
             # Verify password (plain text comparison)
             if user['password'] == password:
-                print(f"[LOGIN] Password match! Login successful for '{username}'")
+                print(f"[LOGIN] Password match!")
+                
+                # Check if user allows multiple logins (default: False for single use)
+                multi_login = user.get('multiLogin', False)
+                print(f"[LOGIN] MultiLogin enabled: {multi_login}")
+                
+                if not multi_login:
+                    # Check if credential already used
+                    if is_credential_used(username):
+                        print(f"[LOGIN] Credential '{username}' already used - login denied")
+                        return jsonify({'success': False, 'error': 'This credential has already been used'}), 403
+                
+                # Login successful
+                print(f"[LOGIN] Login successful for '{username}'")
+                session.clear()  # Clear any old session data
                 session['username'] = username
+                session['multi_login'] = multi_login
+                session.permanent = True  # Use permanent session with timeout
+                
+                # Don't mark as used yet - wait until quiz is submitted
+                
                 return jsonify({'success': True})
             else:
                 print(f"[LOGIN] Password mismatch for '{username}'")
@@ -418,19 +504,33 @@ def login():
 @app.route('/logout')
 def logout():
     """Logout user"""
-    session.pop('username', None)
-    session.pop('questions', None)
-    return redirect(url_for('login'))
+    session.clear()  # Clear entire session
+    response = redirect(url_for('login'))
+    response.headers['Cache-Control'] = 'no-store, no-cache, must-revalidate'
+    response.headers['Pragma'] = 'no-cache'
+    response.headers['Expires'] = '0'
+    return response
 
 @app.route('/quiz')
 def quiz():
     """Quiz page"""
     if 'username' not in session:
+        session.clear()  # Clear any stale session data
         return redirect(url_for('login'))
     
-    # Generate new questions for this session
-    questions = generate_random_questions()
-    session['questions'] = questions
+    # Check if quiz was already taken (prevent refresh after submission)
+    if session.get('quiz_completed', False):
+        print(f"[QUIZ] User {session['username']} tried to access quiz after completion - redirecting to login")
+        session.clear()
+        return redirect(url_for('login'))
+    
+    # Generate new questions for this session only if not already generated
+    if 'questions' not in session or 'quiz_started' not in session:
+        questions = generate_random_questions()
+        session['questions'] = questions
+        session['quiz_started'] = True
+        session['start_time'] = datetime.now().isoformat()
+        session.modified = True  # Mark session as modified
     
     return render_template('quiz.html', 
                          username=session['username'],
@@ -515,6 +615,18 @@ def submit_quiz():
     # Save result to persistent storage
     save_result(session['username'], score, len(questions), time_taken)
     
+    # Mark quiz as completed to prevent refresh/retake
+    session['quiz_completed'] = True
+    
+    # Mark credential as used if single-use (after successful submission)
+    username = session.get('username')
+    multi_login = session.get('multi_login', False)
+    if not multi_login and username:
+        mark_credential_used(username)
+        print(f"[SUBMIT] Single-use credential '{username}' marked as used after quiz submission")
+    
+    session.modified = True
+    
     return jsonify({
         'score': score,
         'total': len(questions),
@@ -534,6 +646,7 @@ if __name__ == '__main__':
     print(f"  - SECRET_KEY: {'SET' if os.environ.get('SECRET_KEY') else 'NOT SET'}")
     print(f"  - GITHUB_TOKEN: {'SET' if os.environ.get('GITHUB_TOKEN') else 'NOT SET'}")
     print(f"  - PRIVATE_REPO: {os.environ.get('PRIVATE_REPO', 'NOT SET')}")
-    print(f"  - RESULTS_DIR: {os.environ.get('RESULTS_DIR', 'NOT SET')}")
+    print(f"  - QUIZ_NUM_QUESTIONS: {QUIZ_NUM_QUESTIONS}")
+    print(f"  - QUIZ_TIME_MINUTES: {QUIZ_TIME_MINUTES}")
     print("="*50)
     app.run(host='0.0.0.0', port=int(os.environ.get('PORT', 5000)))
