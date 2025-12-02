@@ -4,6 +4,16 @@ let answers = {};
 let timeLeft = 30 * 60; // Will be set from server config
 let timerInterval;
 let startTime;
+let quizSubmitted = false;
+
+// Detect page refresh/reload and prevent cheating
+window.addEventListener('beforeunload', function(e) {
+    if (!quizSubmitted && questions.length > 0) {
+        // Warn user before leaving during active quiz
+        e.preventDefault();
+        e.returnValue = 'Your quiz is in progress. If you leave, you will need to login again.';
+    }
+});
 
 // Load questions when page loads
 document.addEventListener('DOMContentLoaded', async () => {
@@ -192,6 +202,7 @@ function getTimeTaken() {
 
 async function submitQuiz() {
     clearInterval(timerInterval);
+    quizSubmitted = true;  // Mark quiz as submitted to prevent beforeunload warning
     
     // Send answers as arrays of option texts
     const formattedAnswers = {};
@@ -210,6 +221,13 @@ async function submitQuiz() {
                 time_taken: getTimeTaken()
             })
         });
+        
+        if (response.status === 401) {
+            // Session expired, redirect to login
+            alert('Your session has expired. Please login again.');
+            window.location.href = '/logout';
+            return;
+        }
         
         const data = await response.json();
         displayResults(data);
