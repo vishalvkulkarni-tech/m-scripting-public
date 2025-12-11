@@ -684,9 +684,12 @@ def quiz():
         session.pop('quiz_completed', None)
         return redirect(url_for('select_section'))
     
-    # Generate new questions for this session only if not already generated
-    if 'questions' not in session or 'quiz_started' not in session:
+    # Generate new questions for this session only if not already generated OR if database changed
+    if ('questions' not in session or 
+        'quiz_started' not in session or 
+        session.get('database_key') != database_key):
         # Generate questions from ALL sections in the database with distribution
+        print(f"[QUIZ] Generating new questions for database: {database_key}")
         questions = generate_random_questions(database_key, section_name=None)
         session['questions'] = questions
         session['database_key'] = database_key
@@ -694,6 +697,8 @@ def quiz():
         session['quiz_started'] = True
         session['start_time'] = datetime.now().isoformat()
         session.modified = True  # Mark session as modified
+    else:
+        print(f"[QUIZ] Reusing existing questions for database: {database_key}")
     
     databases = get_available_databases()
     db_name = databases.get(database_key, {}).get('name', 'Quiz')
