@@ -15,71 +15,57 @@
             padding: 30px;
         }
         
-        .database-group {
-            margin-bottom: 40px;
-            background: white;
-            border-radius: 8px;
-            padding: 25px;
-            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
-        }
-        
-        .database-title {
-            font-size: 1.8rem;
-            color: #2c3e50;
-            margin-bottom: 20px;
-            padding-bottom: 10px;
-            border-bottom: 2px solid #3498db;
-        }
-        
-        .sections-grid {
+        .databases-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
-            gap: 15px;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 30px;
             margin-top: 20px;
         }
         
-        .section-card {
-            border: 2px solid #e0e0e0;
-            border-radius: 8px;
-            padding: 20px;
+        .database-card {
+            border: 3px solid #e0e0e0;
+            border-radius: 12px;
+            padding: 40px 30px;
             cursor: pointer;
             transition: all 0.3s ease;
-            background: #f9f9f9;
+            background: white;
+            text-align: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
         
-        .section-card:hover:not(.completed) {
+        .database-card:hover:not(.completed) {
             border-color: #3498db;
             background: #e3f2fd;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(52, 152, 219, 0.2);
+            transform: translateY(-4px);
+            box-shadow: 0 8px 20px rgba(52, 152, 219, 0.3);
         }
         
-        .section-card.completed {
+        .database-card.completed {
             background: #e8f5e9;
             border-color: #4caf50;
             cursor: not-allowed;
             opacity: 0.7;
         }
         
-        .section-name {
-            font-size: 1.1rem;
-            font-weight: 600;
+        .database-name {
+            font-size: 1.6rem;
+            font-weight: 700;
             color: #2c3e50;
-            margin-bottom: 8px;
+            margin-bottom: 15px;
         }
         
-        .section-info {
-            font-size: 0.9rem;
+        .database-info {
+            font-size: 1rem;
             color: #7f8c8d;
+            margin-bottom: 20px;
         }
         
-        .section-status {
-            margin-top: 10px;
-            padding: 5px 10px;
-            border-radius: 4px;
-            font-size: 0.85rem;
+        .database-status {
+            padding: 10px 20px;
+            border-radius: 6px;
+            font-size: 0.95rem;
             font-weight: 600;
-            text-align: center;
+            display: inline-block;
         }
         
         .status-available {
@@ -129,7 +115,7 @@
     
     <div class="section-selection">
         <div class="header-section">
-            <h1>Select Quiz Section</h1>
+            <h1>Select Quiz Database</h1>
             <p class="user-info">
                 Welcome, <strong>{{ username }}</strong>
                 {% if multi_login %}
@@ -138,39 +124,33 @@
             </p>
             {% if not multi_login %}
             <p style="color: #e74c3c; font-size: 0.9rem; margin-top: 10px;">
-                ⚠️ You can take each section only once. Choose carefully!
+                ⚠️ You can take each quiz only once. Choose carefully!
             </p>
             {% endif %}
         </div>
         
-        {% for db_key, db_data in databases.items() %}
-        <div class="database-group">
-            <h2 class="database-title">{{ db_data.name }}</h2>
-            
-            <div class="sections-grid">
-                {% for section in db_data.sections %}
-                {% set is_completed = section.name in completed.get(db_key, []) %}
-                <div class="section-card {% if is_completed %}completed{% endif %}" 
-                     {% if not is_completed %}onclick="startQuiz('{{ db_key }}', '{{ section.name }}')"{% endif %}>
-                    <div class="section-name">{{ section.name }}</div>
-                    <div class="section-info">{{ section.count }} questions available</div>
-                    <div class="section-status {% if is_completed %}status-completed{% else %}status-available{% endif %}">
-                        {% if is_completed %}
-                        ✓ Completed
-                        {% else %}
-                        Click to Start
-                        {% endif %}
-                    </div>
+        <div class="databases-grid">
+            {% for db_key, db_data in databases.items() %}
+            {% set is_completed = db_key in completed %}
+            <div class="database-card {% if is_completed %}completed{% endif %}" 
+                 {% if not is_completed %}onclick="startQuiz('{{ db_key }}')"{% endif %}>
+                <div class="database-name">{{ db_data.name }}</div>
+                <div class="database-info">30 questions from multiple topics</div>
+                <div class="database-status {% if is_completed %}status-completed{% else %}status-available{% endif %}">
+                    {% if is_completed %}
+                    ✓ Completed
+                    {% else %}
+                    Click to Start Quiz
+                    {% endif %}
                 </div>
-                {% endfor %}
             </div>
+            {% endfor %}
         </div>
-        {% endfor %}
     </div>
     
     <script>
-        function startQuiz(database, section) {
-            window.location.href = `/quiz?database=${encodeURIComponent(database)}&section=${encodeURIComponent(section)}`;
+        function startQuiz(database) {
+            window.location.href = `/quiz?database=${encodeURIComponent(database)}`;
         }
     </script>
 </body>
