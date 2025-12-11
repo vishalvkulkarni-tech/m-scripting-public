@@ -12,7 +12,7 @@
 <body>
     <div class="quiz-header">
         <div class="header-left">
-            <h1>MATLAB/Simulink Quiz</h1>
+            <h1>{{ quiz_name }}</h1>
             <p>Welcome, <strong>{{ username }}</strong></p>
         </div>
         <div class="header-right">
@@ -39,7 +39,8 @@
         <div class="modal-content">
             <h2>Quiz Results</h2>
             <div id="resultsContent"></div>
-            <button onclick="window.location.href='/logout'" class="btn-primary">Take Another Quiz</button>
+            <button onclick="window.location.href='/select-section'" class="btn-primary">Back to Section Selection</button>
+            <button onclick="window.location.href='/logout'" class="btn-secondary" style="margin-left: 10px;">Logout</button>
         </div>
     </div>
     
