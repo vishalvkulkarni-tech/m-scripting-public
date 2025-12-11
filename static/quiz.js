@@ -60,6 +60,9 @@ function createQuestionElement(q, index) {
     // Use radio for single answer, checkbox for multiple answers
     const inputType = q.is_multiple ? 'checkbox' : 'radio';
     
+    // Process question text for Mermaid diagrams
+    const processedQuestion = processDiagrams(q.question);
+    
     let optionsHTML = '';
     q.options.forEach(opt => {
         // Escape single quotes in option text for JS
@@ -79,14 +82,30 @@ function createQuestionElement(q, index) {
     
     div.innerHTML = `
         <h2>Question ${index + 1} of ${questions.length}</h2>
-        <p>${q.question}</p>
+        <div class="question-text">${processedQuestion}</div>
         ${answerTypeHint}
         <div class="options">
             ${optionsHTML}
         </div>
     `;
     
+    // Render Mermaid diagrams after DOM insertion
+    setTimeout(() => {
+        mermaid.run({
+            nodes: div.querySelectorAll('.mermaid')
+        });
+    }, 100);
+    
     return div;
+}
+
+function processDiagrams(text) {
+    // Convert [DIAGRAM]...[/DIAGRAM] to Mermaid syntax
+    const diagramRegex = /\[DIAGRAM\]([\s\S]*?)\[\/DIAGRAM\]/g;
+    return text.replace(diagramRegex, (match, diagramCode) => {
+        const trimmedCode = diagramCode.trim();
+        return `<div class="diagram-container"><pre class="mermaid">${trimmedCode}</pre></div>`;
+    });
 }
 
 function handleAnswerChange(questionId, optionText, checked, inputType) {
