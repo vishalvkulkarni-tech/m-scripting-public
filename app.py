@@ -28,7 +28,36 @@ PRIVATE_REPO = os.environ.get('PRIVATE_REPO')  # Format: username/repo-name
 # Quiz configuration (customizable)
 QUIZ_NUM_QUESTIONS = int(os.environ.get('QUIZ_NUM_QUESTIONS', '30'))  # Total questions per quiz
 QUIZ_TIME_MINUTES = int(os.environ.get('QUIZ_TIME_MINUTES', '30'))  # Quiz duration in minutes
-QUIZ_SECTION1_PERCENTAGE = float(os.environ.get('QUIZ_SECTION1_PERCENTAGE', '0.5'))  # 50% from Section 1
+
+# MATLAB Database Section Percentages (18 sections total, must sum to 1.0 if provided)
+MATLAB_SCRIPTING_FUNDAMENTALS_PCT = os.environ.get('MATLAB_SCRIPTING_FUNDAMENTALS_PCT')
+MATLAB_SCRIPTING_ADVANCED_PCT = os.environ.get('MATLAB_SCRIPTING_ADVANCED_PCT')
+MATLAB_SCRIPTING_TRICKY_PCT = os.environ.get('MATLAB_SCRIPTING_TRICKY_PCT')
+MATLAB_WORKSPACE_SCOPE_PCT = os.environ.get('MATLAB_WORKSPACE_SCOPE_PCT')
+MATLAB_SIMPLE_TRICKY_PCT = os.environ.get('MATLAB_SIMPLE_TRICKY_PCT')
+SIMULINK_MSCRIPT_FUNDAMENTALS_PCT = os.environ.get('SIMULINK_MSCRIPT_FUNDAMENTALS_PCT')
+SIMULINK_MSCRIPT_SIMPLE_PCT = os.environ.get('SIMULINK_MSCRIPT_SIMPLE_PCT')
+SIMULINK_MSCRIPT_TRICKY_PCT = os.environ.get('SIMULINK_MSCRIPT_TRICKY_PCT')
+FIND_SYSTEM_COMMAND_PCT = os.environ.get('FIND_SYSTEM_COMMAND_PCT')
+SIMULINK_TRUEFALSE_PCT = os.environ.get('SIMULINK_TRUEFALSE_PCT')
+MATLAB_TRUEFALSE_PCT = os.environ.get('MATLAB_TRUEFALSE_PCT')
+STATEFLOW_MSCRIPTING_PCT = os.environ.get('STATEFLOW_MSCRIPTING_PCT')
+SIMULINK_DATA_DICTIONARY_PCT = os.environ.get('SIMULINK_DATA_DICTIONARY_PCT')
+MODEL_COMPARISON_PROJECTS_PCT = os.environ.get('MODEL_COMPARISON_PROJECTS_PCT')
+CODE_GENERATION_SCRIPTING_PCT = os.environ.get('CODE_GENERATION_SCRIPTING_PCT')
+TEST_AUTOMATION_PCT = os.environ.get('TEST_AUTOMATION_PCT')
+SIMULINK_DATA_HANDLING_PCT = os.environ.get('SIMULINK_DATA_HANDLING_PCT')
+MISCELLANEOUS_MSCRIPTING_PCT = os.environ.get('MISCELLANEOUS_MSCRIPTING_PCT')
+
+# Simulink-Stateflow Database Section Percentages (8 sections total, must sum to 1.0 if provided)
+SIMULINK_BASIC_PCT = os.environ.get('SIMULINK_BASIC_PCT')  # SIMULINK BASIC
+SIMULINK_ADVANCED_PCT = os.environ.get('SIMULINK_ADVANCED_PCT')  # SIMULINK ADVANCED
+SIMULINK_SUPER_ADVANCED_PCT = os.environ.get('SIMULINK_SUPER_ADVANCED_PCT')  # SIMULINK SUPER ADVANCED
+STATEFLOW_BASIC_PCT = os.environ.get('STATEFLOW_BASIC_PCT')  # STATEFLOW BASIC
+STATEFLOW_ADVANCED_PCT = os.environ.get('STATEFLOW_ADVANCED_PCT')  # STATEFLOW ADVANCED
+STATEFLOW_SUPER_ADVANCED_PCT = os.environ.get('STATEFLOW_SUPER_ADVANCED_PCT')  # STATEFLOW SUPER ADVANCED
+STATEFLOW_TRICKY_PCT = os.environ.get('STATEFLOW_TRICKY_PCT')  # STATEFLOW TRICKY
+SIMULINK_TRICKY_PCT = os.environ.get('SIMULINK_TRICKY_PCT')  # SIMULINK TRICKY
 
 def upload_to_github(filename, content, message="Update file"):
     """Upload/update file in private GitHub repository"""
@@ -367,7 +396,7 @@ def parse_question(question_text):
     }
 
 def generate_random_questions(database_key='matlab', section_name=None, num_questions=None):
-    """Generate random questions with configurable percentage from Section 1 or specific section"""
+    """Generate random questions with configurable percentage distribution across all sections"""
     if num_questions is None:
         num_questions = QUIZ_NUM_QUESTIONS
     
@@ -378,7 +407,7 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
         return []
     
     # If specific section requested, use only that section
-    if section_name:
+    if section_name and section_name != 'ALL':
         target_section = next((s for s in sections if s['name'] == section_name), None)
         if not target_section:
             return []
@@ -388,31 +417,89 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
         selected_indices = random.sample(available, num_to_select)
         selected = [questions[idx] for idx in selected_indices]
     else:
-        # Allocate configured percentage to Section 1
-        questions_from_section1 = min(round(num_questions * QUIZ_SECTION1_PERCENTAGE), sections[0]['count'])
-        questions_per_section = [questions_from_section1] + [0] * (len(sections) - 1)
+        # Get percentage distribution based on database
+        percentages = None
         
-        # Distribute remaining among other sections
-        remaining = num_questions - questions_from_section1
-        if len(sections) > 1 and remaining > 0:
-            other_counts = [s['count'] for s in sections[1:]]
-            total_other = sum(other_counts)
-            
-            if total_other > 0:
-                for i, count in enumerate(other_counts):
-                    weight = count / total_other
-                    questions_per_section[i + 1] = round(remaining * weight)
-                
-                # Adjust for rounding
-                while sum(questions_per_section) < num_questions:
-                    for i in range(1, len(questions_per_section)):
-                        if sum(questions_per_section) < num_questions:
-                            questions_per_section[i] += 1
-                
-                while sum(questions_per_section) > num_questions:
-                    for i in range(len(questions_per_section) - 1, 0, -1):
-                        if questions_per_section[i] > 0 and sum(questions_per_section) > num_questions:
-                            questions_per_section[i] -= 1
+        if database_key == 'matlab':
+            # Try to get percentages from environment variables
+            pct_vars = [
+                MATLAB_SCRIPTING_FUNDAMENTALS_PCT,
+                MATLAB_SCRIPTING_ADVANCED_PCT,
+                MATLAB_SCRIPTING_TRICKY_PCT,
+                MATLAB_WORKSPACE_SCOPE_PCT,
+                MATLAB_SIMPLE_TRICKY_PCT,
+                SIMULINK_MSCRIPT_FUNDAMENTALS_PCT,
+                SIMULINK_MSCRIPT_SIMPLE_PCT,
+                SIMULINK_MSCRIPT_TRICKY_PCT,
+                FIND_SYSTEM_COMMAND_PCT,
+                SIMULINK_TRUEFALSE_PCT,
+                MATLAB_TRUEFALSE_PCT,
+                STATEFLOW_MSCRIPTING_PCT,
+                SIMULINK_DATA_DICTIONARY_PCT,
+                MODEL_COMPARISON_PROJECTS_PCT,
+                CODE_GENERATION_SCRIPTING_PCT,
+                TEST_AUTOMATION_PCT,
+                SIMULINK_DATA_HANDLING_PCT,
+                MISCELLANEOUS_MSCRIPTING_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
+        elif database_key == 'simulink-stateflow':
+            # Try to get percentages from environment variables
+            pct_vars = [
+                SIMULINK_BASIC_PCT,
+                SIMULINK_ADVANCED_PCT,
+                SIMULINK_SUPER_ADVANCED_PCT,
+                STATEFLOW_BASIC_PCT,
+                STATEFLOW_ADVANCED_PCT,
+                STATEFLOW_SUPER_ADVANCED_PCT,
+                STATEFLOW_TRICKY_PCT,
+                SIMULINK_TRICKY_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
+        # If no percentages configured or database not recognized, use equal distribution
+        if percentages is None:
+            num_sections = len(sections)
+            percentages = [1.0 / num_sections] * num_sections
+            print(f"[QUIZ] No custom percentages found for {database_key}. Using equal distribution.")
+        
+        # Ensure we have the right number of percentages
+        elif len(percentages) != len(sections):
+            print(f"[WARNING] Percentage count mismatch for {database_key}. Using equal distribution.")
+            num_sections = len(sections)
+            percentages = [1.0 / num_sections] * num_sections
+        
+        # Validate that percentages sum to approximately 1.0 (allow small floating point errors)
+        else:
+            total_pct = sum(percentages)
+            if abs(total_pct - 1.0) > 0.01:  # More than 1% deviation
+                print(f"[WARNING] Percentages sum to {total_pct} (expected 1.0) for {database_key}. Using equal distribution.")
+                num_sections = len(sections)
+                percentages = [1.0 / num_sections] * num_sections
+        
+        # Calculate questions per section based on percentages
+        questions_per_section = [round(num_questions * pct) for pct in percentages]
+        
+        # Adjust for rounding errors to ensure total equals num_questions
+        current_total = sum(questions_per_section)
+        if current_total < num_questions:
+            # Add extra questions to sections with highest percentages
+            diff = num_questions - current_total
+            sorted_indices = sorted(range(len(percentages)), key=lambda i: percentages[i], reverse=True)
+            for i in range(diff):
+                questions_per_section[sorted_indices[i % len(sorted_indices)]] += 1
+        elif current_total > num_questions:
+            # Remove questions from sections with lowest percentages
+            diff = current_total - num_questions
+            sorted_indices = sorted(range(len(percentages)), key=lambda i: percentages[i])
+            for i in range(diff):
+                if questions_per_section[sorted_indices[i % len(sorted_indices)]] > 0:
+                    questions_per_section[sorted_indices[i % len(sorted_indices)]] -= 1
         
         # Select random questions from each section
         selected = []
@@ -424,6 +511,8 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
                 
                 for idx in selected_indices:
                     selected.append(questions[idx])
+        
+        print(f"[QUIZ] Distribution for {database_key}: {dict(zip([s['name'] for s in sections], questions_per_section))}")
     
     # Shuffle questions
     random.shuffle(selected)
@@ -509,8 +598,10 @@ def login():
                 print(f"[LOGIN] MultiLogin enabled: {multi_login}")
                 
                 if not multi_login:
-                    # Check if credential already used
-                    if is_credential_used(username):
+                    # Check if any database has been completed (credential already used)
+                    completed = load_completed_sections()
+                    user_completed = completed.get(username, {})
+                    if any('ALL' in sections for sections in user_completed.values()):
                         print(f"[LOGIN] Credential '{username}' already used - login denied")
                         return jsonify({'success': False, 'error': 'This credential has already been used'}), 403
                 
@@ -551,34 +642,23 @@ def select_section():
         session.clear()
         return redirect(url_for('login'))
     
-    # Load available databases and sections
+    # Load available databases
     databases = get_available_databases()
-    database_content = {}
     
-    for db_key, db_info in databases.items():
-        content = load_database(db_key)
-        sections, _ = parse_database(content)
-        database_content[db_key] = {
-            'name': db_info['name'],
-            'sections': sections
-        }
-    
-    # Get completed sections for user
+    # Get completed databases for user
     username = session['username']
     multi_login = session.get('multi_login', False)
-    completed = {}
+    completed_databases = []
     
     if not multi_login:
         for db_key in databases.keys():
-            completed[db_key] = []
-            for section in database_content[db_key]['sections']:
-                if is_section_completed(username, db_key, section['name']):
-                    completed[db_key].append(section['name'])
+            if is_section_completed(username, db_key, 'ALL'):
+                completed_databases.append(db_key)
     
     return render_template('select_section.html',
                          username=username,
-                         databases=database_content,
-                         completed=completed,
+                         databases=databases,
+                         completed=completed_databases,
                          multi_login=multi_login)
 
 @app.route('/quiz')
@@ -588,15 +668,14 @@ def quiz():
         session.clear()  # Clear any stale session data
         return redirect(url_for('login'))
     
-    # Get database and section from query params
+    # Get database from query params
     database_key = request.args.get('database', 'matlab')
-    section_name = request.args.get('section', None)
     
-    # Check if section already completed (for non-multi-login users)
+    # Check if database already completed (for non-multi-login users)
     multi_login = session.get('multi_login', False)
-    if not multi_login and section_name:
-        if is_section_completed(session['username'], database_key, section_name):
-            print(f"[QUIZ] Section '{section_name}' already completed by {session['username']}")
+    if not multi_login:
+        if is_section_completed(session['username'], database_key, 'ALL'):
+            print(f"[QUIZ] Database '{database_key}' already completed by {session['username']}")
             return redirect(url_for('select_section'))
     
     # Check if quiz was already taken (prevent refresh after submission)
@@ -607,21 +686,21 @@ def quiz():
     
     # Generate new questions for this session only if not already generated
     if 'questions' not in session or 'quiz_started' not in session:
-        questions = generate_random_questions(database_key, section_name)
+        # Generate questions from ALL sections in the database with distribution
+        questions = generate_random_questions(database_key, section_name=None)
         session['questions'] = questions
         session['database_key'] = database_key
-        session['section_name'] = section_name
+        session['section_name'] = 'ALL'
         session['quiz_started'] = True
         session['start_time'] = datetime.now().isoformat()
         session.modified = True  # Mark session as modified
     
     databases = get_available_databases()
     db_name = databases.get(database_key, {}).get('name', 'Quiz')
-    section_display = f" - {section_name}" if section_name else ""
     
     return render_template('quiz.html', 
                          username=session['username'],
-                         quiz_name=f"{db_name}{section_display}",
+                         quiz_name=db_name,
                          quiz_time_minutes=QUIZ_TIME_MINUTES,
                          num_questions=QUIZ_NUM_QUESTIONS)
 
@@ -653,8 +732,7 @@ def get_config():
     """API endpoint to get quiz configuration"""
     return jsonify({
         'num_questions': QUIZ_NUM_QUESTIONS,
-        'time_minutes': QUIZ_TIME_MINUTES,
-        'section1_percentage': QUIZ_SECTION1_PERCENTAGE
+        'time_minutes': QUIZ_TIME_MINUTES
     })
 
 @app.route('/api/submit', methods=['POST'])
@@ -761,7 +839,8 @@ def submit_quiz():
         'score': score,
         'total': len(questions),
         'percentage': round((score / len(questions)) * 100, 2),
-        'results': results
+        'results': results,
+        'section_wise_scores': section_wise_results
     })
 
 @app.route('/health')
