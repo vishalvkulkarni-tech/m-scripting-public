@@ -59,6 +59,12 @@ STATEFLOW_SUPER_ADVANCED_PCT = os.environ.get('STATEFLOW_SUPER_ADVANCED_PCT')  #
 STATEFLOW_TRICKY_PCT = os.environ.get('STATEFLOW_TRICKY_PCT')  # STATEFLOW TRICKY
 SIMULINK_TRICKY_PCT = os.environ.get('SIMULINK_TRICKY_PCT')  # SIMULINK TRICKY
 
+# Simulink-Stateflow Modeling Database Section Percentages (4 sections total, must sum to 1.0 if provided)
+MODELING_SIMULINK_BASIC_PCT = os.environ.get('MODELING_SIMULINK_BASIC_PCT')  # SIMULINK MODELING BASICS
+MODELING_SIMULINK_ADVANCED_PCT = os.environ.get('MODELING_SIMULINK_ADVANCED_PCT')  # SIMULINK MODELING ADVANCED
+MODELING_STATEFLOW_BASIC_PCT = os.environ.get('MODELING_STATEFLOW_BASIC_PCT')  # STATEFLOW MODELING BASICS
+MODELING_STATEFLOW_ADVANCED_PCT = os.environ.get('MODELING_STATEFLOW_ADVANCED_PCT')  # STATEFLOW MODELING ADVANCED
+
 def upload_to_github(filename, content, message="Update file"):
     """Upload/update file in private GitHub repository"""
     print(f"[GITHUB] Uploading {filename} to GitHub...")
@@ -240,7 +246,8 @@ def get_available_databases():
     """Get list of available quiz databases"""
     databases = {
         'matlab': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting'},
-        'simulink-stateflow': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow'}
+        'simulink-stateflow': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow'},
+        'modeling': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling'}
     }
     return databases
 
@@ -457,6 +464,18 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
                 STATEFLOW_SUPER_ADVANCED_PCT,
                 STATEFLOW_TRICKY_PCT,
                 SIMULINK_TRICKY_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
+        elif database_key == 'modeling':
+            # Try to get percentages from environment variables
+            pct_vars = [
+                MODELING_SIMULINK_BASIC_PCT,
+                MODELING_SIMULINK_ADVANCED_PCT,
+                MODELING_STATEFLOW_BASIC_PCT,
+                MODELING_STATEFLOW_ADVANCED_PCT
             ]
             if any(p is not None for p in pct_vars):
                 # At least one variable is set, use them (convert None to 0.0)
