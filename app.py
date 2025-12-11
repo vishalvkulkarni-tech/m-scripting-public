@@ -340,8 +340,8 @@ def parse_question(question_text):
                     'text': match.group(2).strip()  # Ensure clean text without extra spaces
                 })
         elif not line_stripped.startswith('OPTIONS:') and not in_options and question:
-            # Continue question text
-            question += ' ' + line_stripped
+            # Continue question text - preserve newlines for diagram tags
+            question += '\n' + line_stripped
     
     # Convert answer numbers to actual option texts
     answer_nums = answer.split()
