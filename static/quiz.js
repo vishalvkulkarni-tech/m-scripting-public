@@ -242,13 +242,41 @@ function displayResults(data) {
     const modal = document.getElementById('resultsModal');
     const content = document.getElementById('resultsContent');
     
+    // Overall score summary
     let resultsHTML = `
         <div class="score-summary">
-            <h3>${data.score} / ${data.total}</h3>
-            <p>Score: ${data.percentage}%</p>
+            <h3>Overall Score</h3>
+            <p class="main-score">${data.score} / ${data.total} (${data.percentage}%)</p>
         </div>
-        <h3>Detailed Results:</h3>
     `;
+    
+    // Subsection-wise scores
+    if (data.section_wise_scores && Object.keys(data.section_wise_scores).length > 0) {
+        resultsHTML += `
+            <div class="subsection-scores">
+                <h3>Subsection Performance</h3>
+                <div class="subsection-grid">
+        `;
+        
+        for (const [section, scores] of Object.entries(data.section_wise_scores)) {
+            const percentage = scores.percentage || 0;
+            const statusClass = percentage >= 70 ? 'good' : percentage >= 50 ? 'average' : 'poor';
+            resultsHTML += `
+                <div class="subsection-item ${statusClass}">
+                    <div class="subsection-name">${section}</div>
+                    <div class="subsection-score">${scores.correct} / ${scores.total}</div>
+                    <div class="subsection-percentage">${percentage}%</div>
+                </div>
+            `;
+        }
+        
+        resultsHTML += `
+                </div>
+            </div>
+        `;
+    }
+    
+    resultsHTML += `<h3>Detailed Question Review:</h3>`;
     
     data.results.forEach((result, index) => {
         const isCorrect = result.is_correct;
