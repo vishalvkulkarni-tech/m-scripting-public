@@ -177,34 +177,53 @@ def load_users():
         traceback.print_exc()
         return {"users": []}
 
-def load_used_credentials():
-    """Load list of used credentials from GitHub"""
+def load_completed_sections():
+    """Load completed sections data from GitHub"""
     try:
-        content = fetch_from_github('used_credentials.json')
+        content = fetch_from_github('completed_sections.json')
         return json.loads(content)
     except Exception as e:
-        print(f"[CREDENTIAL] No existing credentials file or error: {e}")
-        return []
+        print(f"[SECTIONS] No existing completed sections file or error: {e}")
+        return {}
 
-def mark_credential_used(username):
-    """Mark a credential as used and save to GitHub"""
-    used_creds = load_used_credentials()
+def mark_section_completed(username, database_key, section_name):
+    """Mark a section as completed for a user"""
+    completed = load_completed_sections()
     
-    if username not in used_creds:
-        used_creds.append(username)
-        content = json.dumps(used_creds, indent=2)
-        upload_to_github('used_credentials.json', content, f"Mark {username} as used")
-        print(f"[CREDENTIAL] Marked username '{username}' as used")
+    if username not in completed:
+        completed[username] = {}
+    
+    if database_key not in completed[username]:
+        completed[username][database_key] = []
+    
+    if section_name not in completed[username][database_key]:
+        completed[username][database_key].append(section_name)
+        content = json.dumps(completed, indent=2)
+        upload_to_github('completed_sections.json', content, f"Mark {section_name} completed for {username}")
+        print(f"[SECTIONS] Marked section '{section_name}' in '{database_key}' as completed for '{username}'")
 
-def is_credential_used(username):
-    """Check if credential has been used"""
-    used_creds = load_used_credentials()
-    return username in used_creds
+def is_section_completed(username, database_key, section_name):
+    """Check if section has been completed by user"""
+    completed = load_completed_sections()
+    return section_name in completed.get(username, {}).get(database_key, [])
 
-def load_database():
+def get_available_databases():
+    """Get list of available quiz databases"""
+    databases = {
+        'matlab': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting'},
+        'simulink-stateflow': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow'}
+    }
+    return databases
+
+def load_database(database_key='matlab'):
     """Load question database from private repository"""
     try:
-        return fetch_from_github('m_script_database.txt')
+        databases = get_available_databases()
+        if database_key not in databases:
+            database_key = 'matlab'  # Default fallback
+        
+        filename = databases[database_key]['file']
+        return fetch_from_github(filename)
     except Exception as e:
         print(f"Error loading database: {e}")
         return ""
@@ -347,53 +366,64 @@ def parse_question(question_text):
         'is_multiple': len(correct_option_texts) > 1  # Flag for radio vs checkbox
     }
 
-def generate_random_questions(num_questions=None):
-    """Generate random questions with configurable percentage from Section 1"""
+def generate_random_questions(database_key='matlab', section_name=None, num_questions=None):
+    """Generate random questions with configurable percentage from Section 1 or specific section"""
     if num_questions is None:
         num_questions = QUIZ_NUM_QUESTIONS
     
-    database_content = load_database()
+    database_content = load_database(database_key)
     sections, questions = parse_database(database_content)
     
     if not sections or not questions:
         return []
     
-    # Allocate configured percentage to Section 1
-    questions_from_section1 = min(round(num_questions * QUIZ_SECTION1_PERCENTAGE), sections[0]['count'])
-    questions_per_section = [questions_from_section1] + [0] * (len(sections) - 1)
-    
-    # Distribute remaining among other sections
-    remaining = num_questions - questions_from_section1
-    if len(sections) > 1 and remaining > 0:
-        other_counts = [s['count'] for s in sections[1:]]
-        total_other = sum(other_counts)
+    # If specific section requested, use only that section
+    if section_name:
+        target_section = next((s for s in sections if s['name'] == section_name), None)
+        if not target_section:
+            return []
         
-        if total_other > 0:
-            for i, count in enumerate(other_counts):
-                weight = count / total_other
-                questions_per_section[i + 1] = round(remaining * weight)
+        available = target_section['question_indices']
+        num_to_select = min(num_questions, len(available))
+        selected_indices = random.sample(available, num_to_select)
+        selected = [questions[idx] for idx in selected_indices]
+    else:
+        # Allocate configured percentage to Section 1
+        questions_from_section1 = min(round(num_questions * QUIZ_SECTION1_PERCENTAGE), sections[0]['count'])
+        questions_per_section = [questions_from_section1] + [0] * (len(sections) - 1)
+        
+        # Distribute remaining among other sections
+        remaining = num_questions - questions_from_section1
+        if len(sections) > 1 and remaining > 0:
+            other_counts = [s['count'] for s in sections[1:]]
+            total_other = sum(other_counts)
             
-            # Adjust for rounding
-            while sum(questions_per_section) < num_questions:
-                for i in range(1, len(questions_per_section)):
-                    if sum(questions_per_section) < num_questions:
-                        questions_per_section[i] += 1
-            
-            while sum(questions_per_section) > num_questions:
-                for i in range(len(questions_per_section) - 1, 0, -1):
-                    if questions_per_section[i] > 0 and sum(questions_per_section) > num_questions:
-                        questions_per_section[i] -= 1
-    
-    # Select random questions from each section
-    selected = []
-    for i, section in enumerate(sections):
-        if questions_per_section[i] > 0:
-            available = section['question_indices']
-            num_to_select = min(questions_per_section[i], len(available))
-            selected_indices = random.sample(available, num_to_select)
-            
-            for idx in selected_indices:
-                selected.append(questions[idx])
+            if total_other > 0:
+                for i, count in enumerate(other_counts):
+                    weight = count / total_other
+                    questions_per_section[i + 1] = round(remaining * weight)
+                
+                # Adjust for rounding
+                while sum(questions_per_section) < num_questions:
+                    for i in range(1, len(questions_per_section)):
+                        if sum(questions_per_section) < num_questions:
+                            questions_per_section[i] += 1
+                
+                while sum(questions_per_section) > num_questions:
+                    for i in range(len(questions_per_section) - 1, 0, -1):
+                        if questions_per_section[i] > 0 and sum(questions_per_section) > num_questions:
+                            questions_per_section[i] -= 1
+        
+        # Select random questions from each section
+        selected = []
+        for i, section in enumerate(sections):
+            if questions_per_section[i] > 0:
+                available = section['question_indices']
+                num_to_select = min(questions_per_section[i], len(available))
+                selected_indices = random.sample(available, num_to_select)
+                
+                for idx in selected_indices:
+                    selected.append(questions[idx])
     
     # Shuffle questions
     random.shuffle(selected)
@@ -407,15 +437,18 @@ def generate_random_questions(num_questions=None):
     
     return parsed_questions
 
-def save_result(username, score, total, time_taken):
-    """Save quiz result to GitHub"""
+def save_result(username, score, total, time_taken, database_key=None, section_name=None, section_wise_scores=None):
+    """Save quiz result to GitHub with detailed section information"""
     result = {
         'username': username,
+        'database': database_key or 'unknown',
+        'section': section_name or 'All Sections',
         'score': score,
         'total': total,
         'percentage': round((score / total) * 100, 2) if total > 0 else 0,
         'time_taken': time_taken,
-        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+        'section_wise_scores': section_wise_scores or {}
     }
     
     # Load existing results from GitHub
@@ -436,9 +469,9 @@ def save_result(username, score, total, time_taken):
 
 @app.route('/')
 def index():
-    """Landing page - redirect to login or quiz"""
+    """Landing page - redirect to login or section selection"""
     if 'username' in session:
-        return redirect(url_for('quiz'))
+        return redirect(url_for('select_section'))
     return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -511,6 +544,43 @@ def logout():
     response.headers['Expires'] = '0'
     return response
 
+@app.route('/select-section')
+def select_section():
+    """Section selection page"""
+    if 'username' not in session:
+        session.clear()
+        return redirect(url_for('login'))
+    
+    # Load available databases and sections
+    databases = get_available_databases()
+    database_content = {}
+    
+    for db_key, db_info in databases.items():
+        content = load_database(db_key)
+        sections, _ = parse_database(content)
+        database_content[db_key] = {
+            'name': db_info['name'],
+            'sections': sections
+        }
+    
+    # Get completed sections for user
+    username = session['username']
+    multi_login = session.get('multi_login', False)
+    completed = {}
+    
+    if not multi_login:
+        for db_key in databases.keys():
+            completed[db_key] = []
+            for section in database_content[db_key]['sections']:
+                if is_section_completed(username, db_key, section['name']):
+                    completed[db_key].append(section['name'])
+    
+    return render_template('select_section.html',
+                         username=username,
+                         databases=database_content,
+                         completed=completed,
+                         multi_login=multi_login)
+
 @app.route('/quiz')
 def quiz():
     """Quiz page"""
@@ -518,22 +588,40 @@ def quiz():
         session.clear()  # Clear any stale session data
         return redirect(url_for('login'))
     
+    # Get database and section from query params
+    database_key = request.args.get('database', 'matlab')
+    section_name = request.args.get('section', None)
+    
+    # Check if section already completed (for non-multi-login users)
+    multi_login = session.get('multi_login', False)
+    if not multi_login and section_name:
+        if is_section_completed(session['username'], database_key, section_name):
+            print(f"[QUIZ] Section '{section_name}' already completed by {session['username']}")
+            return redirect(url_for('select_section'))
+    
     # Check if quiz was already taken (prevent refresh after submission)
     if session.get('quiz_completed', False):
-        print(f"[QUIZ] User {session['username']} tried to access quiz after completion - redirecting to login")
-        session.clear()
-        return redirect(url_for('login'))
+        print(f"[QUIZ] User {session['username']} tried to access quiz after completion - redirecting to section selection")
+        session.pop('quiz_completed', None)
+        return redirect(url_for('select_section'))
     
     # Generate new questions for this session only if not already generated
     if 'questions' not in session or 'quiz_started' not in session:
-        questions = generate_random_questions()
+        questions = generate_random_questions(database_key, section_name)
         session['questions'] = questions
+        session['database_key'] = database_key
+        session['section_name'] = section_name
         session['quiz_started'] = True
         session['start_time'] = datetime.now().isoformat()
         session.modified = True  # Mark session as modified
     
+    databases = get_available_databases()
+    db_name = databases.get(database_key, {}).get('name', 'Quiz')
+    section_display = f" - {section_name}" if section_name else ""
+    
     return render_template('quiz.html', 
                          username=session['username'],
+                         quiz_name=f"{db_name}{section_display}",
                          quiz_time_minutes=QUIZ_TIME_MINUTES,
                          num_questions=QUIZ_NUM_QUESTIONS)
 
@@ -580,10 +668,29 @@ def submit_quiz():
     time_taken = data.get('time_taken', '00:00')
     
     questions = session.get('questions', [])
+    database_key = session.get('database_key', 'unknown')
+    section_name = session.get('section_name', 'All Sections')
     
-    # Calculate score
+    # Load database to get section information for each question
+    database_content = load_database(database_key)
+    sections, all_questions = parse_database(database_content)
+    
+    # Create a mapping of question text to section name
+    question_to_section = {}
+    for section in sections:
+        for q_idx in section['question_indices']:
+            if q_idx < len(all_questions):
+                q_text = all_questions[q_idx]
+                # Extract just the question text (after "QUESTION N.")
+                match = re.search(r'QUESTION \d+\.\s*(.*?)(?:\nOPTIONS:|\n|$)', q_text, re.DOTALL)
+                if match:
+                    question_key = match.group(1).strip()[:100]  # First 100 chars as key
+                    question_to_section[question_key] = section['name']
+    
+    # Calculate score and track section-wise performance
     score = 0
     results = []
+    section_wise_scores = {}
     
     for q in questions:
         q_id = str(q['id'])
@@ -602,9 +709,22 @@ def submit_quiz():
         if is_correct:
             score += 1
         
+        # Find which section this question belongs to
+        question_key = q['question'].strip()[:100]
+        question_section = question_to_section.get(question_key, 'Unknown Section')
+        
+        # Track section-wise scores
+        if question_section not in section_wise_scores:
+            section_wise_scores[question_section] = {'correct': 0, 'total': 0}
+        
+        section_wise_scores[question_section]['total'] += 1
+        if is_correct:
+            section_wise_scores[question_section]['correct'] += 1
+        
         results.append({
             'id': q['id'],
             'question': q['question'],
+            'section': question_section,
             'options': q['options'],
             'correct_answers': correct_answer_texts,
             'user_answers': user_answer_texts,
@@ -612,19 +732,29 @@ def submit_quiz():
             'is_multiple': q.get('is_multiple', False)
         })
     
-    # Save result to persistent storage
-    save_result(session['username'], score, len(questions), time_taken)
+    # Calculate percentages for each section
+    section_wise_results = {}
+    for sect, scores in section_wise_scores.items():
+        section_wise_results[sect] = {
+            'correct': scores['correct'],
+            'total': scores['total'],
+            'percentage': round((scores['correct'] / scores['total']) * 100, 2) if scores['total'] > 0 else 0
+        }
+    
+    # Save result to persistent storage with section details
+    save_result(session['username'], score, len(questions), time_taken, 
+                database_key, section_name, section_wise_results)
+    
+    # Mark section as completed if single-use (after successful submission)
+    username = session.get('username')
+    multi_login = session.get('multi_login', False)
+    
+    if not multi_login and username and section_name:
+        mark_section_completed(username, database_key, section_name)
+        print(f"[SUBMIT] Section '{section_name}' in '{database_key}' marked as completed for '{username}'")
     
     # Mark quiz as completed to prevent refresh/retake
     session['quiz_completed'] = True
-    
-    # Mark credential as used if single-use (after successful submission)
-    username = session.get('username')
-    multi_login = session.get('multi_login', False)
-    if not multi_login and username:
-        mark_credential_used(username)
-        print(f"[SUBMIT] Single-use credential '{username}' marked as used after quiz submission")
-    
     session.modified = True
     
     return jsonify({
