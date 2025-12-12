@@ -11,6 +11,24 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes session timeout
 
+# Increase session cookie size limit (default is 4KB, we need more for questions with diagrams)
+# Switch to server-side session by using SESSION_TYPE
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = '/tmp/flask_session'
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+
+# Try to import and configure Flask-Session for server-side storage
+try:
+    from flask_session import Session
+    Session(app)
+    print("[STARTUP] Using server-side session storage (Flask-Session)")
+except ImportError:
+    print("[STARTUP] Flask-Session not available, using default cookie-based sessions")
+    print("[WARNING] Large session data may fail with cookie-based sessions!")
+    # Increase max cookie size as fallback
+    app.config['MAX_COOKIE_SIZE'] = 8192  # 8KB instead of 4KB
+
 # Prevent caching of sensitive pages
 @app.after_request
 def add_no_cache_headers(response):
@@ -378,8 +396,13 @@ def parse_question(question_text):
     answer = ''
     
     in_options = False
+    line_count = 0
+    options_line_found = False
+    
+    print(f"[PARSE_DEBUG] Starting to parse question with {len(lines)} lines")
     
     for line in lines:
+        line_count += 1
         line_stripped = line.strip()
         
         if line_stripped.startswith('QUESTION '):
@@ -388,28 +411,38 @@ def parse_question(question_text):
             if match:
                 question_num = match.group(1)
                 question = match.group(2)
+                print(f"[PARSE_DEBUG] Line {line_count}: Found QUESTION {question_num}, initial text: '{match.group(2)[:50]}'")
         elif line_stripped.startswith('OPTIONS:'):
             in_options = True
+            options_line_found = True
+            print(f"[PARSE_DEBUG] Line {line_count}: Found OPTIONS marker, question text length: {len(question)}")
         elif line_stripped.startswith('ANSWER:'):
             in_options = False
             answer = line_stripped[7:].strip()
+            print(f"[PARSE_DEBUG] Line {line_count}: Found ANSWER: {answer}, parsed {len(options)} options")
         elif in_options and line_stripped:
             # Parse option (format: "1. option text")
             match = re.match(r'(\d+)\.\s*(.*)', line_stripped)
             if match:
                 options.append({
                     'num': match.group(1),
-                    'text': match.group(2).strip()  # Ensure clean text without extra spaces
+                    'text': match.group(2).strip()
                 })
+                print(f"[PARSE_DEBUG] Line {line_count}: Parsed option {match.group(1)}: '{match.group(2)[:30]}'")
+            else:
+                print(f"[PARSE_DEBUG] Line {line_count}: In options but line doesn't match pattern: '{line_stripped[:50]}'")
         elif not line_stripped.startswith('OPTIONS:') and not in_options and question:
             # Continue question text - preserve newlines for diagram tags
             question += '\n' + line_stripped
     
+    print(f"[PARSE_DEBUG] Parsing complete for Q{question_num}: question_len={len(question)}, options={len(options)}, answer='{answer}'")
+    
     # Debug logging for parsing issues
     if not question:
-        print(f"[PARSE_ERROR] No question text found in: {question_text[:100]}")
+        print(f"[PARSE_ERROR] No question text found in: {question_text[:200]}")
     if not options:
-        print(f"[PARSE_ERROR] No options found in question {question_num}")
+        print(f"[PARSE_ERROR] No options found in question {question_num}, options_line_found={options_line_found}")
+        print(f"[PARSE_ERROR] Full question text:\n{question_text}")
     if not answer:
         print(f"[PARSE_ERROR] No answer found in question {question_num}")
     
