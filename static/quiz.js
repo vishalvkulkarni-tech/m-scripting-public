@@ -46,10 +46,39 @@ async function loadQuestions() {
         document.getElementById('quizFooter').style.display = 'flex';
         
         // Render all Mermaid diagrams after all questions are in the DOM
-        setTimeout(() => {
-            console.log('Initializing Mermaid diagrams...');
-            mermaid.init(undefined, document.querySelectorAll('.mermaid'));
-        }, 200);
+        setTimeout(async () => {
+            console.log('Rendering Mermaid diagrams...');
+            const diagramElements = document.querySelectorAll('.mermaid');
+            console.log(`Found ${diagramElements.length} diagrams to render`);
+            
+            for (const element of diagramElements) {
+                try {
+                    const diagramCode = element.textContent.trim();
+                    const outputId = element.id + '-output';
+                    const outputElement = document.getElementById(outputId);
+                    
+                    if (!outputElement) {
+                        console.error(`Output element not found for ${element.id}`);
+                        continue;
+                    }
+                    
+                    console.log(`Rendering ${element.id}, code length: ${diagramCode.length}`);
+                    const { svg } = await mermaid.render(element.id + '-svg', diagramCode);
+                    outputElement.innerHTML = svg;
+                    console.log(`✓ Rendered diagram: ${element.id}`);
+                } catch (error) {
+                    console.error(`✗ Failed to render diagram ${element.id}:`, error);
+                    const outputElement = document.getElementById(element.id + '-output');
+                    if (outputElement) {
+                        outputElement.innerHTML = `<div style="color: red; padding: 10px; border: 1px solid red; background: #fee;">
+                            <strong>Diagram Error:</strong><br>${error.message}<br>
+                            <small>Check browser console for details</small>
+                        </div>`;
+                    }
+                }
+            }
+            console.log('Diagram rendering complete');
+        }, 300);
         
     } catch (error) {
         console.error('Error loading questions:', error);
@@ -107,13 +136,9 @@ function processDiagrams(text, questionIndex) {
         const trimmedCode = diagramCode.trim();
         const uniqueId = `diagram-q${questionIndex}-d${diagramCount++}`;
         
-        // Escape any HTML entities in the mermaid code
-        const escapedCode = trimmedCode
-            .replace(/&/g, '&amp;')
-            .replace(/</g, '&lt;')
-            .replace(/>/g, '&gt;');
-        
-        return `<div class="diagram-container"><pre class="mermaid" id="${uniqueId}">${escapedCode}</pre></div>`;
+        // Store the raw mermaid code in a data attribute and hidden element
+        // We'll use textContent to avoid HTML escaping issues
+        return `<div class="diagram-container"><pre class="mermaid" id="${uniqueId}" style="display: none;">${trimmedCode}</pre><div id="${uniqueId}-output"></div></div>`;
     });
 }
 
