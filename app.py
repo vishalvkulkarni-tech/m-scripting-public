@@ -3,7 +3,8 @@ import json
 import random
 import re
 import base64
-from datetime import datetime
+import uuid
+from datetime import datetime, timedelta
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import requests
 
@@ -11,23 +12,18 @@ app = Flask(__name__)
 app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-key-change-in-production')
 app.config['PERMANENT_SESSION_LIFETIME'] = 1800  # 30 minutes session timeout
 
-# Increase session cookie size limit (default is 4KB, we need more for questions with diagrams)
-# Switch to server-side session by using SESSION_TYPE
-app.config['SESSION_TYPE'] = 'filesystem'
-app.config['SESSION_FILE_DIR'] = '/tmp/flask_session'
-app.config['SESSION_PERMANENT'] = False
-app.config['SESSION_USE_SIGNER'] = True
+# In-memory cache for questions (to avoid session size limits)
+# Key: session_id, Value: {'questions': [...], 'timestamp': datetime, 'database_key': str}
+questions_cache = {}
 
-# Try to import and configure Flask-Session for server-side storage
-try:
-    from flask_session import Session
-    Session(app)
-    print("[STARTUP] Using server-side session storage (Flask-Session)")
-except ImportError:
-    print("[STARTUP] Flask-Session not available, using default cookie-based sessions")
-    print("[WARNING] Large session data may fail with cookie-based sessions!")
-    # Increase max cookie size as fallback
-    app.config['MAX_COOKIE_SIZE'] = 8192  # 8KB instead of 4KB
+def cleanup_old_cache():
+    """Remove cache entries older than 2 hours"""
+    cutoff = datetime.now() - timedelta(hours=2)
+    to_remove = [k for k, v in questions_cache.items() if v.get('timestamp', datetime.min) < cutoff]
+    for key in to_remove:
+        del questions_cache[key]
+    if to_remove:
+        print(f"[CACHE] Cleaned up {len(to_remove)} old cache entries")
 
 # Prevent caching of sensitive pages
 @app.after_request
@@ -858,8 +854,13 @@ def quiz():
     # Clear cache and generate new questions if database changed
     if session.get('database_key') != database_key:
         print(f"[QUIZ] Database changed from '{session.get('database_key')}' to '{database_key}' - clearing cache")
-        # Clear all quiz-related session data
-        session.pop('questions', None)
+        # Clear quiz-related session data and cache
+        old_session_id = session.get('quiz_session_id')
+        if old_session_id and old_session_id in questions_cache:
+            del questions_cache[old_session_id]
+            print(f"[QUIZ] Removed old cache entry: {old_session_id}")
+        
+        session.pop('quiz_session_id', None)
         session.pop('quiz_started', None)
         session.pop('start_time', None)
         session.pop('quiz_completed', None)
@@ -876,19 +877,30 @@ def quiz():
             return redirect(url_for('select_section'))
         
         print(f"[QUIZ] Generated {len(questions)} questions")
-        session['questions'] = questions
+        
+        # Generate unique session ID for this quiz session
+        if 'quiz_session_id' not in session:
+            session['quiz_session_id'] = str(uuid.uuid4())
+        
+        quiz_session_id = session['quiz_session_id']
+        
+        # Store questions in memory cache instead of session (to avoid size limits)
+        cleanup_old_cache()  # Clean up old entries first
+        questions_cache[quiz_session_id] = {
+            'questions': questions,
+            'timestamp': datetime.now(),
+            'database_key': database_key
+        }
+        
+        # Store only metadata in session
         session['database_key'] = database_key
         session['section_name'] = 'ALL'
         session['quiz_started'] = True
         session['start_time'] = datetime.now().isoformat()
-        session.modified = True  # Mark session as modified
+        session.modified = True
         
-        # Verify session storage
-        stored_questions = session.get('questions', [])
-        print(f"[QUIZ] Verified: {len(stored_questions)} questions stored in session")
-        if stored_questions and len(stored_questions) > 0:
-            first_stored = stored_questions[0]
-            print(f"[QUIZ] First stored question ID: {first_stored.get('id')}, has {len(first_stored.get('options', []))} options")
+        print(f"[QUIZ] Stored {len(questions)} questions in cache with ID: {quiz_session_id}")
+        print(f"[QUIZ] Cache now has {len(questions_cache)} entries")
     else:
         print(f"[QUIZ] Reusing existing questions for database: {database_key} (index #{db_index})")
     
@@ -908,8 +920,20 @@ def get_questions():
         print("[API] /api/questions - No username in session")
         return jsonify({'error': 'Not authenticated'}), 401
     
-    questions = session.get('questions', [])
-    print(f"[API] /api/questions - Retrieved {len(questions)} questions from session")
+    # Get questions from cache using session ID
+    quiz_session_id = session.get('quiz_session_id')
+    if not quiz_session_id:
+        print("[API] /api/questions - No quiz_session_id in session")
+        return jsonify({'error': 'No active quiz session'}), 400
+    
+    cache_entry = questions_cache.get(quiz_session_id)
+    if not cache_entry:
+        print(f"[API] /api/questions - No cache entry found for session ID: {quiz_session_id}")
+        print(f"[API] Available cache keys: {list(questions_cache.keys())}")
+        return jsonify({'error': 'Quiz session expired'}), 400
+    
+    questions = cache_entry.get('questions', [])
+    print(f"[API] /api/questions - Retrieved {len(questions)} questions from cache (session: {quiz_session_id})")
     
     if questions:
         # Log first question details
@@ -957,7 +981,11 @@ def submit_quiz():
     user_answers = data.get('answers', {})
     time_taken = data.get('time_taken', '00:00')
     
-    questions = session.get('questions', [])
+    # Get questions from cache
+    quiz_session_id = session.get('quiz_session_id')
+    cache_entry = questions_cache.get(quiz_session_id, {})
+    questions = cache_entry.get('questions', [])
+    
     database_key = session.get('database_key', 'unknown')
     section_name = session.get('section_name', 'All Sections')
     
