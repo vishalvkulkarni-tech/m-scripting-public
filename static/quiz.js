@@ -45,6 +45,12 @@ async function loadQuestions() {
         
         document.getElementById('quizFooter').style.display = 'flex';
         
+        // Render all Mermaid diagrams after all questions are in the DOM
+        setTimeout(() => {
+            console.log('Initializing Mermaid diagrams...');
+            mermaid.init(undefined, document.querySelectorAll('.mermaid'));
+        }, 200);
+        
     } catch (error) {
         console.error('Error loading questions:', error);
         document.getElementById('quizContainer').innerHTML = 
@@ -61,7 +67,7 @@ function createQuestionElement(q, index) {
     const inputType = q.is_multiple ? 'checkbox' : 'radio';
     
     // Process question text for Mermaid diagrams
-    const processedQuestion = processDiagrams(q.question);
+    const processedQuestion = processDiagrams(q.question, index);
     
     let optionsHTML = '';
     q.options.forEach(opt => {
@@ -89,22 +95,25 @@ function createQuestionElement(q, index) {
         </div>
     `;
     
-    // Render Mermaid diagrams after DOM insertion
-    setTimeout(() => {
-        mermaid.run({
-            nodes: div.querySelectorAll('.mermaid')
-        });
-    }, 100);
-    
     return div;
 }
 
-function processDiagrams(text) {
-    // Convert [DIAGRAM]...[/DIAGRAM] to Mermaid syntax
+function processDiagrams(text, questionIndex) {
+    // Convert [DIAGRAM]...[/DIAGRAM] to Mermaid syntax with unique IDs
     const diagramRegex = /\[DIAGRAM\]([\s\S]*?)\[\/DIAGRAM\]/g;
+    let diagramCount = 0;
+    
     return text.replace(diagramRegex, (match, diagramCode) => {
         const trimmedCode = diagramCode.trim();
-        return `<div class="diagram-container"><pre class="mermaid">${trimmedCode}</pre></div>`;
+        const uniqueId = `diagram-q${questionIndex}-d${diagramCount++}`;
+        
+        // Escape any HTML entities in the mermaid code
+        const escapedCode = trimmedCode
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+        
+        return `<div class="diagram-container"><pre class="mermaid" id="${uniqueId}">${escapedCode}</pre></div>`;
     });
 }
 
