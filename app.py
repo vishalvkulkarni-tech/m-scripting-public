@@ -243,25 +243,33 @@ def is_section_completed(username, database_key, section_name):
     return section_name in completed.get(username, {}).get(database_key, [])
 
 def get_available_databases():
-    """Get list of available quiz databases"""
+    """Get list of available quiz databases with numeric IDs and hardcoded filenames"""
     databases = {
-        'matlab': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting'},
-        'simulink-stateflow': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow'},
-        'modeling': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling'}
+        'db1': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting', 'index': 1},
+        'db2': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow', 'index': 2},
+        'db3': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling', 'index': 3}
     }
     return databases
 
-def load_database(database_key='matlab'):
-    """Load question database from private repository"""
+def load_database(database_key='db1'):
+    """Load question database from private repository with hardcoded filenames"""
     try:
         databases = get_available_databases()
         if database_key not in databases:
-            database_key = 'matlab'  # Default fallback
+            print(f"[WARNING] Unknown database_key '{database_key}', falling back to 'db1'")
+            database_key = 'db1'  # Default fallback
         
-        filename = databases[database_key]['file']
-        return fetch_from_github(filename)
+        db_info = databases[database_key]
+        filename = db_info['file']
+        db_index = db_info['index']
+        
+        print(f"[DATABASE] Loading database #{db_index}: '{database_key}' from file: {filename}")
+        content = fetch_from_github(filename)
+        print(f"[DATABASE] Loaded {len(content)} bytes from {filename}")
+        print(f"[DATABASE] Database index: {db_index}, Key: {database_key}, Name: {db_info['name']}")
+        return content
     except Exception as e:
-        print(f"Error loading database: {e}")
+        print(f"[ERROR] Error loading database '{database_key}': {e}")
         return ""
 
 def parse_database(content):
@@ -456,21 +464,30 @@ def parse_question(question_text):
         'is_multiple': len(correct_option_texts) > 1  # Flag for radio vs checkbox
     }
 
-def generate_random_questions(database_key='matlab', section_name=None, num_questions=None):
+def generate_random_questions(database_key='db1', section_name=None, num_questions=None):
     """Generate random questions with configurable percentage distribution across all sections"""
     if num_questions is None:
         num_questions = QUIZ_NUM_QUESTIONS
     
+    # Get database info to determine which one we're loading
+    databases = get_available_databases()
+    db_index = databases.get(database_key, {}).get('index', 0)
+    
     database_content = load_database(database_key)
+    
+    # Debug: Check what we actually loaded
+    content_preview = database_content[:200].replace('\n', ' ') if database_content else '(empty)'
+    print(f"[DEBUG] Database #{db_index} - Loaded content preview: {content_preview}")
+    
     sections, questions = parse_database(database_content)
     
-    print(f"[DEBUG] Database: {database_key}, Sections: {len(sections)}, Questions: {len(questions)}")
+    print(f"[DEBUG] Database: {database_key} (index #{db_index}), Sections: {len(sections)}, Questions: {len(questions)}")
     if sections:
         for sect in sections:
             print(f"[DEBUG]   Section '{sect['name']}': {sect['count']} questions")
     
     if not sections or not questions:
-        print(f"[ERROR] No sections or questions found for database: {database_key}")
+        print(f"[ERROR] No sections or questions found for database: {database_key} (index #{db_index})")
         return []
     
     # If specific section requested, use only that section
@@ -484,10 +501,10 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
         selected_indices = random.sample(available, num_to_select)
         selected = [questions[idx] for idx in selected_indices]
     else:
-        # Get percentage distribution based on database
+        # Get percentage distribution based on database index
         percentages = None
         
-        if database_key == 'matlab':
+        if db_index == 1:  # MATLAB Scripting
             # Try to get percentages from environment variables
             pct_vars = [
                 MATLAB_SCRIPTING_FUNDAMENTALS_PCT,
@@ -513,7 +530,7 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
                 # At least one variable is set, use them (convert None to 0.0)
                 percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
         
-        elif database_key == 'simulink-stateflow':
+        elif db_index == 2:  # Simulink & Stateflow
             # Try to get percentages from environment variables
             pct_vars = [
                 SIMULINK_BASIC_PCT,
@@ -529,7 +546,7 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
                 # At least one variable is set, use them (convert None to 0.0)
                 percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
         
-        elif database_key == 'modeling':
+        elif db_index == 3:  # Simulink & Stateflow Modeling
             # Try to get percentages from environment variables
             pct_vars = [
                 MODELING_SIMULINK_BASIC_PCT,
@@ -748,7 +765,13 @@ def quiz():
         return redirect(url_for('login'))
     
     # Get database from query params
-    database_key = request.args.get('database', 'matlab')
+    database_key = request.args.get('database', 'db1')
+    print(f"[QUIZ] Requested database_key: '{database_key}' from URL: {request.url}")
+    
+    # Get database info
+    databases = get_available_databases()
+    db_index = databases.get(database_key, {}).get('index', 0)
+    print(f"[QUIZ] Database index: {db_index}")
     
     # Check if database already completed (for non-multi-login users)
     multi_login = session.get('multi_login', False)
@@ -763,13 +786,27 @@ def quiz():
         session.pop('quiz_completed', None)
         return redirect(url_for('select_section'))
     
-    # Generate new questions for this session only if not already generated OR if database changed
-    if ('questions' not in session or 
-        'quiz_started' not in session or 
-        session.get('database_key') != database_key):
+    # Clear cache and generate new questions if database changed
+    if session.get('database_key') != database_key:
+        print(f"[QUIZ] Database changed from '{session.get('database_key')}' to '{database_key}' - clearing cache")
+        # Clear all quiz-related session data
+        session.pop('questions', None)
+        session.pop('quiz_started', None)
+        session.pop('start_time', None)
+        session.pop('quiz_completed', None)
+        session.modified = True
+    
+    # Generate new questions for this session only if not already generated
+    if 'questions' not in session or 'quiz_started' not in session:
         # Generate questions from ALL sections in the database with distribution
-        print(f"[QUIZ] Generating new questions for database: {database_key}")
+        print(f"[QUIZ] Generating new questions for database: {database_key} (index #{db_index})")
         questions = generate_random_questions(database_key, section_name=None)
+        
+        if not questions:
+            print(f"[ERROR] No questions generated for database {database_key}")
+            return redirect(url_for('select_section'))
+        
+        print(f"[QUIZ] Generated {len(questions)} questions")
         session['questions'] = questions
         session['database_key'] = database_key
         session['section_name'] = 'ALL'
@@ -777,7 +814,7 @@ def quiz():
         session['start_time'] = datetime.now().isoformat()
         session.modified = True  # Mark session as modified
     else:
-        print(f"[QUIZ] Reusing existing questions for database: {database_key}")
+        print(f"[QUIZ] Reusing existing questions for database: {database_key} (index #{db_index})")
     
     databases = get_available_databases()
     db_name = databases.get(database_key, {}).get('name', 'Quiz')
