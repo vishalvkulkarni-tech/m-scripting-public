@@ -370,7 +370,7 @@ def _parse_database_fallback(content):
     return sections, questions
 
 def parse_question(question_text):
-    """Parse individual question to extract components"""
+    """Parse individual question to extract components with detailed logging"""
     lines = question_text.split('\n')
     question_num = ''
     question = ''
@@ -404,6 +404,14 @@ def parse_question(question_text):
         elif not line_stripped.startswith('OPTIONS:') and not in_options and question:
             # Continue question text - preserve newlines for diagram tags
             question += '\n' + line_stripped
+    
+    # Debug logging for parsing issues
+    if not question:
+        print(f"[PARSE_ERROR] No question text found in: {question_text[:100]}")
+    if not options:
+        print(f"[PARSE_ERROR] No options found in question {question_num}")
+    if not answer:
+        print(f"[PARSE_ERROR] No answer found in question {question_num}")
     
     # Convert answer numbers to actual option texts
     answer_nums = answer.split()
@@ -612,13 +620,41 @@ def generate_random_questions(database_key='db1', section_name=None, num_questio
     
     # Shuffle questions
     random.shuffle(selected)
+    print(f"[QUIZ] Selected {len(selected)} raw question texts")
     
     # Parse each question
     parsed_questions = []
+    failed_count = 0
+    
     for i, q_text in enumerate(selected):
-        parsed = parse_question(q_text)
-        parsed['id'] = i + 1
-        parsed_questions.append(parsed)
+        try:
+            parsed = parse_question(q_text)
+            
+            # Validate parsed question has required fields
+            if not parsed.get('question') or not parsed.get('options') or not parsed.get('correct_answers'):
+                print(f"[ERROR] Q{i+1} missing required fields: question={bool(parsed.get('question'))}, options={len(parsed.get('options', []))}, answers={len(parsed.get('correct_answers', []))}")
+                print(f"[ERROR] Raw question text (first 200 chars): {q_text[:200]}")
+                failed_count += 1
+                continue
+            
+            parsed['id'] = i + 1
+            parsed_questions.append(parsed)
+            
+            # Log first question from each section (for debugging)
+            if i < 4:
+                question_preview = parsed['question'][:100].replace('\n', ' ')
+                print(f"[QUIZ] Sample Q{i+1}: {question_preview}... (options: {len(parsed['options'])}, correct: {len(parsed['correct_answers'])})")
+        
+        except Exception as e:
+            print(f"[ERROR] Failed to parse question {i+1}: {e}")
+            print(f"[ERROR] Raw question text (first 200 chars): {q_text[:200]}")
+            failed_count += 1
+            continue
+    
+    print(f"[QUIZ] Parsed {len(parsed_questions)} questions successfully, {failed_count} failed")
+    
+    if len(parsed_questions) == 0:
+        print(f"[ERROR] No questions were successfully parsed! Check parse_question logic.")
     
     return parsed_questions
 
@@ -813,6 +849,13 @@ def quiz():
         session['quiz_started'] = True
         session['start_time'] = datetime.now().isoformat()
         session.modified = True  # Mark session as modified
+        
+        # Verify session storage
+        stored_questions = session.get('questions', [])
+        print(f"[QUIZ] Verified: {len(stored_questions)} questions stored in session")
+        if stored_questions and len(stored_questions) > 0:
+            first_stored = stored_questions[0]
+            print(f"[QUIZ] First stored question ID: {first_stored.get('id')}, has {len(first_stored.get('options', []))} options")
     else:
         print(f"[QUIZ] Reusing existing questions for database: {database_key} (index #{db_index})")
     
@@ -829,24 +872,39 @@ def quiz():
 def get_questions():
     """API endpoint to get questions"""
     if 'username' not in session:
+        print("[API] /api/questions - No username in session")
         return jsonify({'error': 'Not authenticated'}), 401
     
     questions = session.get('questions', [])
+    print(f"[API] /api/questions - Retrieved {len(questions)} questions from session")
+    
+    if questions:
+        # Log first question details
+        first_q = questions[0]
+        q_preview = first_q.get('question', '')[:100].replace('\n', ' ')
+        print(f"[API] First question preview: {q_preview}...")
+        print(f"[API] First question has {len(first_q.get('options', []))} options")
     
     # Return questions without answers
     questions_without_answers = []
     for q in questions:
-        questions_without_answers.append({
+        question_data = {
             'id': q['id'],
             'question': q['question'],
             'options': q['options'],
             'is_multiple': q.get('is_multiple', False)  # Tell frontend if multiple answers allowed
-        })
+        }
+        questions_without_answers.append(question_data)
     
-    return jsonify({
+    response_data = {
         'questions': questions_without_answers,
         'quiz_time_minutes': QUIZ_TIME_MINUTES
-    })
+    }
+    
+    print(f"[API] Returning {len(questions_without_answers)} questions to frontend")
+    print(f"[API] Response size: ~{len(json.dumps(response_data))} bytes")
+    
+    return jsonify(response_data)
 
 @app.route('/api/config')
 def get_config():
