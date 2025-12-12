@@ -265,7 +265,21 @@ def load_database(database_key='matlab'):
         return ""
 
 def parse_database(content):
-    """Parse database file to extract sections and questions"""
+    """Parse database file to extract sections and questions with fallback logic"""
+    # Try primary parsing method (line-by-line)
+    sections, questions = _parse_database_line_by_line(content)
+    
+    # Safeguard: If no questions found, try alternative parsing method
+    if not questions or len(questions) == 0:
+        print("[WARNING] Primary parser found 0 questions. Trying fallback parser...")
+        sections, questions = _parse_database_fallback(content)
+        if questions:
+            print(f"[SUCCESS] Fallback parser found {len(questions)} questions")
+    
+    return sections, questions
+
+def _parse_database_line_by_line(content):
+    """Primary parsing method: line-by-line"""
     lines = content.split('\n')
     sections = []
     questions = []
@@ -304,6 +318,46 @@ def parse_database(content):
     
     if current_section['name']:
         sections.append(current_section)
+    
+    return sections, questions
+
+def _parse_database_fallback(content):
+    """Fallback parsing method: split by QUESTION markers"""
+    sections = []
+    questions = []
+    
+    # Split content into section blocks
+    section_blocks = re.split(r'\nSECTION:\s*', content)
+    
+    for block in section_blocks:
+        if not block.strip():
+            continue
+        
+        # First line is section name
+        lines = block.split('\n')
+        section_name = lines[0].strip()
+        
+        if not section_name:
+            continue
+        
+        current_section = {'name': section_name, 'count': 0, 'question_indices': []}
+        
+        # Split by QUESTION markers (but keep the QUESTION keyword)
+        question_blocks = re.split(r'(\nQUESTION\s+\d+\.)', block)
+        
+        # Reconstruct questions (pairs of marker + content)
+        for i in range(1, len(question_blocks), 2):
+            if i + 1 < len(question_blocks):
+                question_text = (question_blocks[i].strip() + '\n' + question_blocks[i + 1]).strip()
+                
+                # Validate it has required components
+                if 'OPTIONS:' in question_text and 'ANSWER:' in question_text:
+                    questions.append(question_text)
+                    current_section['count'] += 1
+                    current_section['question_indices'].append(len(questions) - 1)
+        
+        if current_section['count'] > 0:
+            sections.append(current_section)
     
     return sections, questions
 
@@ -410,7 +464,13 @@ def generate_random_questions(database_key='matlab', section_name=None, num_ques
     database_content = load_database(database_key)
     sections, questions = parse_database(database_content)
     
+    print(f"[DEBUG] Database: {database_key}, Sections: {len(sections)}, Questions: {len(questions)}")
+    if sections:
+        for sect in sections:
+            print(f"[DEBUG]   Section '{sect['name']}': {sect['count']} questions")
+    
     if not sections or not questions:
+        print(f"[ERROR] No sections or questions found for database: {database_key}")
         return []
     
     # If specific section requested, use only that section
