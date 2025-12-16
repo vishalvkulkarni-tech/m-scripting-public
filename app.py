@@ -40,8 +40,18 @@ GITHUB_TOKEN = os.environ.get('GITHUB_TOKEN')
 PRIVATE_REPO = os.environ.get('PRIVATE_REPO')  # Format: username/repo-name
 
 # Quiz configuration (customizable)
-QUIZ_NUM_QUESTIONS = int(os.environ.get('QUIZ_NUM_QUESTIONS', '30'))  # Total questions per quiz
-QUIZ_TIME_MINUTES = int(os.environ.get('QUIZ_TIME_MINUTES', '30'))  # Quiz duration in minutes
+QUIZ_NUM_QUESTIONS = int(os.environ.get('QUIZ_NUM_QUESTIONS', '30'))  # Total questions per quiz (global default)
+QUIZ_TIME_MINUTES = int(os.environ.get('QUIZ_TIME_MINUTES', '30'))  # Quiz duration in minutes (global default)
+
+# Database-specific quiz configuration (overrides global defaults if set)
+MDB_NUM_QUESTIONS = os.environ.get('MDB_NUM_QUESTIONS')  # MATLAB Scripting Database
+MDB_TIME_MINUTES = os.environ.get('MDB_TIME_MINUTES')
+SLDB_NUM_QUESTIONS = os.environ.get('SLDB_NUM_QUESTIONS')  # Simulink & Stateflow Database
+SLDB_TIME_MINUTES = os.environ.get('SLDB_TIME_MINUTES')
+SLMDB_NUM_QUESTIONS = os.environ.get('SLMDB_NUM_QUESTIONS')  # Simulink & Stateflow Modeling Database
+SLMDB_TIME_MINUTES = os.environ.get('SLMDB_TIME_MINUTES')
+EMBCDB_NUM_QUESTIONS = os.environ.get('EMBCDB_NUM_QUESTIONS')  # Embedded C Database (future)
+EMBCDB_TIME_MINUTES = os.environ.get('EMBCDB_TIME_MINUTES')
 
 # MATLAB Database Section Percentages (18 sections total, must sum to 1.0 if provided)
 MATLAB_SCRIPTING_FUNDAMENTALS_PCT = os.environ.get('MATLAB_SCRIPTING_FUNDAMENTALS_PCT')
@@ -78,6 +88,14 @@ MODELING_SIMULINK_BASIC_PCT = os.environ.get('MODELING_SIMULINK_BASIC_PCT')  # S
 MODELING_SIMULINK_ADVANCED_PCT = os.environ.get('MODELING_SIMULINK_ADVANCED_PCT')  # SIMULINK MODELING ADVANCED
 MODELING_STATEFLOW_BASIC_PCT = os.environ.get('MODELING_STATEFLOW_BASIC_PCT')  # STATEFLOW MODELING BASICS
 MODELING_STATEFLOW_ADVANCED_PCT = os.environ.get('MODELING_STATEFLOW_ADVANCED_PCT')  # STATEFLOW MODELING ADVANCED
+
+# Embedded C Automotive Database Section Percentages (6 sections total, must sum to 1.0 if provided)
+BASIC_EMBEDDED_C_PCT = os.environ.get('BASIC_EMBEDDED_C_PCT')  # BASIC EMBEDDED C
+ADVANCED_EMBEDDED_C_PCT = os.environ.get('ADVANCED_EMBEDDED_C_PCT')  # ADVANCED EMBEDDED C
+AUTOMOTIVE_EMBEDDED_C_PCT = os.environ.get('AUTOMOTIVE_EMBEDDED_C_PCT')  # AUTOMOTIVE EMBEDDED C
+MATLAB_AUTO_CODE_GENERATION_PCT = os.environ.get('MATLAB_AUTO_CODE_GENERATION_PCT')  # MATLAB AUTO CODE GENERATION
+TRICKY_EMBEDDED_C_PCT = os.environ.get('TRICKY_EMBEDDED_C_PCT')  # TRICKY EMBEDDED C
+MEMORY_RELATED_EMBEDDED_C_PCT = os.environ.get('MEMORY_RELATED_EMBEDDED_C_PCT')  # MEMORY RELATED EMBEDDED C
 
 def upload_to_github(filename, content, message="Update file"):
     """Upload/update file in private GitHub repository"""
@@ -261,9 +279,44 @@ def get_available_databases():
     databases = {
         'db1': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting', 'index': 1},
         'db2': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow', 'index': 2},
-        'db3': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling', 'index': 3}
+        'db3': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling', 'index': 3},
+        'db4': {'file': 'embedded_c_automotive.txt', 'name': 'Embedded C Automotive', 'index': 4}
     }
     return databases
+
+def get_database_config(database_key):
+    """Get configuration (num_questions, time_minutes) for a specific database with fallback logic"""
+    # Map database keys to their specific env variables
+    db_config_map = {
+        'db1': {'num_questions': MDB_NUM_QUESTIONS, 'time_minutes': MDB_TIME_MINUTES},
+        'db2': {'num_questions': SLDB_NUM_QUESTIONS, 'time_minutes': SLDB_TIME_MINUTES},
+        'db3': {'num_questions': SLMDB_NUM_QUESTIONS, 'time_minutes': SLMDB_TIME_MINUTES},
+        'db4': {'num_questions': EMBCDB_NUM_QUESTIONS, 'time_minutes': EMBCDB_TIME_MINUTES}
+    }
+    
+    # Get database-specific config
+    db_config = db_config_map.get(database_key, {})
+    
+    # Determine num_questions with fallback logic
+    if db_config.get('num_questions') is not None:
+        num_questions = int(db_config['num_questions'])
+        print(f"[CONFIG] Using database-specific num_questions for {database_key}: {num_questions}")
+    else:
+        num_questions = QUIZ_NUM_QUESTIONS
+        print(f"[CONFIG] Using global QUIZ_NUM_QUESTIONS for {database_key}: {num_questions}")
+    
+    # Determine time_minutes with fallback logic
+    if db_config.get('time_minutes') is not None:
+        time_minutes = int(db_config['time_minutes'])
+        print(f"[CONFIG] Using database-specific time_minutes for {database_key}: {time_minutes}")
+    else:
+        time_minutes = QUIZ_TIME_MINUTES
+        print(f"[CONFIG] Using global QUIZ_TIME_MINUTES for {database_key}: {time_minutes}")
+    
+    return {
+        'num_questions': num_questions,
+        'time_minutes': time_minutes
+    }
 
 def load_database(database_key='db1'):
     """Load question database from private repository with hardcoded filenames"""
@@ -595,6 +648,20 @@ def generate_random_questions(database_key='db1', section_name=None, num_questio
                 # At least one variable is set, use them (convert None to 0.0)
                 percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
         
+        elif db_index == 4:  # Embedded C Automotive
+            # Try to get percentages from environment variables
+            pct_vars = [
+                BASIC_EMBEDDED_C_PCT,
+                ADVANCED_EMBEDDED_C_PCT,
+                AUTOMOTIVE_EMBEDDED_C_PCT,
+                MATLAB_AUTO_CODE_GENERATION_PCT,
+                TRICKY_EMBEDDED_C_PCT,
+                MEMORY_RELATED_EMBEDDED_C_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
         # If no percentages configured or database not recognized, use equal distribution
         if percentages is None:
             num_sections = len(sections)
@@ -866,11 +933,16 @@ def quiz():
         session.pop('quiz_completed', None)
         session.modified = True
     
+    # Get database-specific configuration
+    db_config = get_database_config(database_key)
+    num_questions = db_config['num_questions']
+    time_minutes = db_config['time_minutes']
+    
     # Generate new questions for this session only if not already generated
     if 'questions' not in session or 'quiz_started' not in session:
         # Generate questions from ALL sections in the database with distribution
         print(f"[QUIZ] Generating new questions for database: {database_key} (index #{db_index})")
-        questions = generate_random_questions(database_key, section_name=None)
+        questions = generate_random_questions(database_key, section_name=None, num_questions=num_questions)
         
         if not questions:
             print(f"[ERROR] No questions generated for database {database_key}")
@@ -910,8 +982,8 @@ def quiz():
     return render_template('quiz.html', 
                          username=session['username'],
                          quiz_name=db_name,
-                         quiz_time_minutes=QUIZ_TIME_MINUTES,
-                         num_questions=QUIZ_NUM_QUESTIONS)
+                         quiz_time_minutes=time_minutes,
+                         num_questions=num_questions)
 
 @app.route('/api/questions')
 def get_questions():
@@ -953,9 +1025,13 @@ def get_questions():
         }
         questions_without_answers.append(question_data)
     
+    # Get database-specific configuration
+    database_key = cache_entry.get('database_key', 'db1')
+    db_config = get_database_config(database_key)
+    
     response_data = {
         'questions': questions_without_answers,
-        'quiz_time_minutes': QUIZ_TIME_MINUTES
+        'quiz_time_minutes': db_config['time_minutes']
     }
     
     print(f"[API] Returning {len(questions_without_answers)} questions to frontend")
@@ -966,9 +1042,13 @@ def get_questions():
 @app.route('/api/config')
 def get_config():
     """API endpoint to get quiz configuration"""
+    # Get database from session if available
+    database_key = session.get('database_key', 'db1')
+    db_config = get_database_config(database_key)
+    
     return jsonify({
-        'num_questions': QUIZ_NUM_QUESTIONS,
-        'time_minutes': QUIZ_TIME_MINUTES
+        'num_questions': db_config['num_questions'],
+        'time_minutes': db_config['time_minutes']
     })
 
 @app.route('/api/submit', methods=['POST'])
