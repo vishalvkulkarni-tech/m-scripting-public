@@ -52,6 +52,10 @@ SLMDB_NUM_QUESTIONS = os.environ.get('SLMDB_NUM_QUESTIONS')  # Simulink & Statef
 SLMDB_TIME_MINUTES = os.environ.get('SLMDB_TIME_MINUTES')
 EMBCDB_NUM_QUESTIONS = os.environ.get('EMBCDB_NUM_QUESTIONS')  # Embedded C Database (future)
 EMBCDB_TIME_MINUTES = os.environ.get('EMBCDB_TIME_MINUTES')
+CANDB_NUM_QUESTIONS = os.environ.get('CANDB_NUM_QUESTIONS')  # CAN Database
+CANDB_TIME_MINUTES = os.environ.get('CANDB_TIME_MINUTES')
+AUTOSARDB_NUM_QUESTIONS = os.environ.get('AUTOSARDB_NUM_QUESTIONS')  # AUTOSAR Database
+AUTOSARDB_TIME_MINUTES = os.environ.get('AUTOSARDB_TIME_MINUTES')
 
 # MATLAB Database Section Percentages (18 sections total, must sum to 1.0 if provided)
 MATLAB_SCRIPTING_FUNDAMENTALS_PCT = os.environ.get('MATLAB_SCRIPTING_FUNDAMENTALS_PCT')
@@ -96,6 +100,16 @@ AUTOMOTIVE_EMBEDDED_C_PCT = os.environ.get('AUTOMOTIVE_EMBEDDED_C_PCT')  # AUTOM
 MATLAB_AUTO_CODE_GENERATION_PCT = os.environ.get('MATLAB_AUTO_CODE_GENERATION_PCT')  # MATLAB AUTO CODE GENERATION
 TRICKY_EMBEDDED_C_PCT = os.environ.get('TRICKY_EMBEDDED_C_PCT')  # TRICKY EMBEDDED C
 MEMORY_RELATED_EMBEDDED_C_PCT = os.environ.get('MEMORY_RELATED_EMBEDDED_C_PCT')  # MEMORY RELATED EMBEDDED C
+
+# CAN Database Section Percentages (3 sections total, must sum to 1.0 if provided)
+CAN_HIGH_LEVEL_PCT = os.environ.get('CAN_HIGH_LEVEL_PCT')  # CAN HIGH LEVEL
+CAN_FRAME_FORMAT_PCT = os.environ.get('CAN_FRAME_FORMAT_PCT')  # CAN FRAME FORMAT
+MISC_CAN_PCT = os.environ.get('MISC_CAN_PCT')  # MISC CAN
+
+# AUTOSAR Database Section Percentages (3 sections total, must sum to 1.0 if provided)
+CLASSIC_AUTOSAR_PCT = os.environ.get('CLASSIC_AUTOSAR_PCT')  # CLASSIC AUTOSAR
+ADAPTIVE_AUTOSAR_PCT = os.environ.get('ADAPTIVE_AUTOSAR_PCT')  # ADAPTIVE AUTOSAR
+MISC_AUTOSAR_PCT = os.environ.get('MISC_AUTOSAR_PCT')  # MISC AUTOSAR
 
 def upload_to_github(filename, content, message="Update file"):
     """Upload/update file in private GitHub repository"""
@@ -280,7 +294,9 @@ def get_available_databases():
         'db1': {'file': 'm_script_database.txt', 'name': 'MATLAB Scripting', 'index': 1},
         'db2': {'file': 'simulink_stateflow_database.txt', 'name': 'Simulink & Stateflow', 'index': 2},
         'db3': {'file': 'simulink_stateflow_modeling.txt', 'name': 'Simulink & Stateflow Modeling', 'index': 3},
-        'db4': {'file': 'embedded_c_automotive.txt', 'name': 'Embedded C Automotive', 'index': 4}
+        'db4': {'file': 'embedded_c_automotive.txt', 'name': 'Embedded C Automotive', 'index': 4},
+        'db5': {'file': 'CAN.txt', 'name': 'CAN Protocol', 'index': 5},
+        'db6': {'file': 'autosar.txt', 'name': 'AUTOSAR', 'index': 6}
     }
     return databases
 
@@ -291,7 +307,9 @@ def get_database_config(database_key):
         'db1': {'num_questions': MDB_NUM_QUESTIONS, 'time_minutes': MDB_TIME_MINUTES},
         'db2': {'num_questions': SLDB_NUM_QUESTIONS, 'time_minutes': SLDB_TIME_MINUTES},
         'db3': {'num_questions': SLMDB_NUM_QUESTIONS, 'time_minutes': SLMDB_TIME_MINUTES},
-        'db4': {'num_questions': EMBCDB_NUM_QUESTIONS, 'time_minutes': EMBCDB_TIME_MINUTES}
+        'db4': {'num_questions': EMBCDB_NUM_QUESTIONS, 'time_minutes': EMBCDB_TIME_MINUTES},
+        'db5': {'num_questions': CANDB_NUM_QUESTIONS, 'time_minutes': CANDB_TIME_MINUTES},
+        'db6': {'num_questions': AUTOSARDB_NUM_QUESTIONS, 'time_minutes': AUTOSARDB_TIME_MINUTES}
     }
     
     # Get database-specific config
@@ -657,6 +675,28 @@ def generate_random_questions(database_key='db1', section_name=None, num_questio
                 MATLAB_AUTO_CODE_GENERATION_PCT,
                 TRICKY_EMBEDDED_C_PCT,
                 MEMORY_RELATED_EMBEDDED_C_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
+        elif db_index == 5:  # CAN Protocol
+            # Try to get percentages from environment variables
+            pct_vars = [
+                CAN_HIGH_LEVEL_PCT,
+                CAN_FRAME_FORMAT_PCT,
+                MISC_CAN_PCT
+            ]
+            if any(p is not None for p in pct_vars):
+                # At least one variable is set, use them (convert None to 0.0)
+                percentages = [float(p) if p is not None else 0.0 for p in pct_vars]
+        
+        elif db_index == 6:  # AUTOSAR
+            # Try to get percentages from environment variables
+            pct_vars = [
+                CLASSIC_AUTOSAR_PCT,
+                ADAPTIVE_AUTOSAR_PCT,
+                MISC_AUTOSAR_PCT
             ]
             if any(p is not None for p in pct_vars):
                 # At least one variable is set, use them (convert None to 0.0)
